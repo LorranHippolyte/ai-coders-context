@@ -333,9 +333,16 @@ export const TOOL_REGISTRY: ToolDefinition[] = [
     id: 'kiro',
     displayName: 'Kiro',
     directoryPrefix: '.kiro',
-    capabilities: { rules: false, agents: false, skills: false },
-    paths: {},
-    description: 'Kiro MCP configuration',
+    capabilities: { rules: true, agents: true, skills: false },
+    paths: {
+      rulesExport: '.kiro/steering',
+      rulesFormat: 'directory',
+      rulesImport: ['**/.kiro/steering/**/*.md'],
+      rulesImportPaths: ['.kiro/steering'],
+      agentsExport: '.kiro/steering',
+      agentsImport: ['**/.kiro/steering/**/*.md'],
+    },
+    description: 'Kiro IDE steering directory',
   },
 
   // JetBrains IDEs
