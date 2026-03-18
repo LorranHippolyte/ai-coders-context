@@ -483,7 +483,8 @@ const englishMessages = {
   // Manage submenus
   'prompts.main.choice.manageSkills': 'Manage Skills',
   'prompts.main.choice.manageAgents': 'Manage Agents',
-  'prompts.main.choice.settings': 'Settings',
+  'prompts.main.choice.settings': 'Settings (language)',
+  'prompts.main.choice.mcpInstall': 'Install/Configure MCP',
   'prompts.main.choice.startWorkflow': 'Start Workflow',
   'prompts.main.choice.createPlan': 'Create Plan',
   'prompts.main.choice.quickSetup': 'Quick Setup (creates context from codebase)',
@@ -505,11 +506,24 @@ const englishMessages = {
   'prompts.settings.action': 'Settings:',
   'prompts.settings.choice.language': 'Change language',
   'prompts.settings.choice.back': 'Back',
+  // Mode selection (interactive entry)
+  'prompts.modeSelect.select': 'How would you like to use @ai-coders/context?',
+  'prompts.modeSelect.choice.mcp': 'Set up MCP for my AI tool (recommended — no API key needed)',
+  'prompts.modeSelect.choice.cli': 'Use the interactive CLI (requires API key from a provider)',
+  'prompts.modeSelect.choice.exit': 'Exit',
+  // More options submenu
+  'prompts.more.action': 'More options:',
+  'prompts.more.choice.back': 'Back',
+  // Quick Sync mode
+  'prompts.quickSync.mode': 'Sync all (agents, skills, docs) to common targets?',
+  'prompts.quickSync.mode.syncAll': 'Yes, sync all',
+  'prompts.quickSync.mode.customize': 'Customize targets...',
+  'prompts.quickSync.mode.cancel': 'Cancel',
   // Compact status
-  'status.compact': 'Docs: {docs} | Agents: {agents} synced | Skills: {skills} active',
-  'status.outdated': 'Docs: {docs} ({days}d old) | Agents: {agents} | Skills: {skills}',
-  'status.new': 'No context found.',
-  'status.unfilled': 'Context: {count} files need filling',
+  'status.compact': '✓ Context ready ({docs} docs, {agents} agents, {skills} skills)',
+  'status.outdated': '⚠ Context outdated ({days} days) - run Update Docs',
+  'status.new': 'No context found',
+  'status.unfilled': 'Context scaffolded, {count} files need content',
   // Hit Enter / Press Enter
   'prompts.pressEnter': 'Press Enter to continue...',
   // Environment variable loading
@@ -1000,7 +1014,8 @@ const portugueseMessages: TranslationDictionary = {
   // Manage submenus
   'prompts.main.choice.manageSkills': 'Gerenciar Skills',
   'prompts.main.choice.manageAgents': 'Gerenciar Agents',
-  'prompts.main.choice.settings': 'Configurações',
+  'prompts.main.choice.settings': 'Configurações (idioma)',
+  'prompts.main.choice.mcpInstall': 'Instalar/Configurar MCP',
   'prompts.main.choice.startWorkflow': 'Iniciar Workflow',
   'prompts.main.choice.createPlan': 'Criar Plano',
   'prompts.main.choice.quickSetup': 'Setup Rápido (cria contexto do codebase)',
@@ -1022,11 +1037,24 @@ const portugueseMessages: TranslationDictionary = {
   'prompts.settings.action': 'Configurações:',
   'prompts.settings.choice.language': 'Mudar idioma',
   'prompts.settings.choice.back': 'Voltar',
+  // Mode selection (interactive entry)
+  'prompts.modeSelect.select': 'Como você gostaria de usar o @ai-coders/context?',
+  'prompts.modeSelect.choice.mcp': 'Configurar MCP para minha ferramenta de IA (recomendado — sem API key)',
+  'prompts.modeSelect.choice.cli': 'Usar a CLI interativa (requer API key de um provedor)',
+  'prompts.modeSelect.choice.exit': 'Sair',
+  // More options submenu
+  'prompts.more.action': 'Mais opções:',
+  'prompts.more.choice.back': 'Voltar',
+  // Quick Sync mode
+  'prompts.quickSync.mode': 'Sincronizar tudo (agents, skills, docs) para destinos comuns?',
+  'prompts.quickSync.mode.syncAll': 'Sim, sincronizar tudo',
+  'prompts.quickSync.mode.customize': 'Personalizar destinos...',
+  'prompts.quickSync.mode.cancel': 'Cancelar',
   // Compact status
-  'status.compact': 'Docs: {docs} | Agents: {agents} synced | Skills: {skills} ativos',
-  'status.outdated': 'Docs: {docs} ({days}d atrás) | Agents: {agents} | Skills: {skills}',
-  'status.new': 'Nenhum contexto encontrado.',
-  'status.unfilled': 'Contexto: {count} arquivos precisam preenchimento',
+  'status.compact': '✓ Contexto pronto ({docs} docs, {agents} agents, {skills} skills)',
+  'status.outdated': '⚠ Contexto desatualizado ({days} dias) - execute Atualizar Docs',
+  'status.new': 'Nenhum contexto encontrado',
+  'status.unfilled': 'Contexto scaffolded, {count} arquivos precisam de conteúdo',
   // Hit Enter / Press Enter
   'prompts.pressEnter': 'Pressione Enter para continuar...',
   // Environment variable loading

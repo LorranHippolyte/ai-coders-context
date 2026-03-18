@@ -41,151 +41,47 @@ One `.context/` directory. Works everywhere.
 Export to any tool.
 **Write once. Use anywhere. No boilerplate.**
 
+> **Using GitHub Copilot, Cursor, Claude, or another AI tool?**
+> Just run `npx @ai-coders/context mcp:install` — no API key needed!
+>
+> **Usando GitHub Copilot, Cursor, Claude ou outra ferramenta de IA?**
+> Execute `npx @ai-coders/context mcp:install` — sem necessidade de API key!
 
-## Youtube video
-[![Watch the video](https://img.youtube.com/vi/p9uV3CeLaKY/0.jpg)](https://www.youtube.com/watch?v=p9uV3CeLaKY)
+## Getting Started / Como Começar
 
-## Connect with Us
+### Path 1: MCP (Recommended / Recomendado) — no API key
 
-Built by [AI Coders Academy](http://aicoders.academy/) — Learn AI-assisted development and become a more productive developer.
+#### English
 
-- [AI Coders Academy](http://aicoders.academy/) — Courses and resources for AI-powered coding
-- [YouTube Channel](https://www.youtube.com/@aicodersacademy) — Tutorials, demos, and best practices
-- [Connect with Vini](https://www.linkedin.com/in/viniciuslanadepaula/) — Creator of @ai-coders/context
+1. Run `npx @ai-coders/context mcp:install`
+2. Prompt your AI agent: `init the context`
+3. Then: `plan [YOUR TASK] using ai-context`
+4. After planned: `start the workflow`
 
+**No API key needed.** Your AI tool provides the LLM.
 
-## Why PREVC?
+#### Português
 
-LLMs produce better results when they follow a structured process instead of generating code blindly. PREVC ensures:
+1. Execute `npx @ai-coders/context mcp:install`
+2. Diga ao seu agente de IA: `init the context`
+3. Depois: `plan [SUA TAREFA] using ai-context`
+4. Após o planejamento: `start the workflow`
 
-- **Specifications before code** — AI understands what to build before building it
-- **Context awareness** — Each phase has the right documentation and agent
-- **Human checkpoints** — Review and validate at each step, not just at the end
-- **Reproducible quality** — Same process, consistent results across projects
+**Sem necessidade de API key.** Sua ferramenta de IA fornece o LLM.
 
-## Usage
+### Path 2: Standalone CLI — requires API key / requer API key
 
-```bash
-npx @ai-coders/context
-```
+#### English
 
-That's it. The wizard detects what needs to be done.
+1. Create a `.env` file with your provider API key (see [Supported Providers](#supported-providers))
+2. Run `npx @ai-coders/context`
+3. Select "Use the interactive CLI" when prompted
 
+#### Português
 
-PT-BR Tutorial
-https://www.youtube.com/watch?v=5BPrfZAModk
-
-
-## What it does
-
-1. **Creates documentation** — Structured docs from your codebase (architecture, data flow, decisions)
-2. **Generates agent playbooks** — 14 specialized AI agents (code-reviewer, bug-fixer, architect, etc.)
-3. **Smart scaffold filtering** — Automatically detects project type and generates only relevant content
-4. **Useful out-of-the-box** — Scaffolds include practical template content, not empty placeholders
-5. **Manages workflows** — PREVC process with scale detection, gates, and execution history
-6. **Provides skills** — On-demand expertise (commit messages, PR reviews, security audits)
-7. **Syncs everywhere** — Export to Cursor, Claude, Copilot, Windsurf, Cline, Codex, Antigravity, Trae, and more
-8. **Tracks execution** — Step-level tracking with git integration for workflow phases
-9. **Keeps it updated** — Detects code changes and suggests documentation updates
-
-## Quick Start
-
-1. Install the MCP
-2. Prompt to the agent:
-```bash
-init the context
-```
-3. This will setup the context and fill it according the the codebase
-4. With the context ready prompt
-```bash
-plan [YOUR TASK HERE] using ai-context
-```
-5. After planned, prompt
-```bash
-start the workflow
-```
-6. That's it!
-
-## PREVC Workflow System
-
-A universal 5-phase process designed to improve LLM output quality through structured, spec-driven development:
-
-| Phase | Name | Purpose |
-|-------|------|---------|
-| **P** | Planning | Define what to build. Gather requirements, write specs, identify scope. No code yet. |
-| **R** | Review | Validate the approach. Architecture decisions, technical design, risk assessment. |
-| **E** | Execution | Build it. Implementation follows the approved specs and design. |
-| **V** | Validation | Verify it works. Tests, QA, code review against original specs. |
-| **C** | Confirmation | Ship it. Documentation, deployment, stakeholder handoff. |
-
-### The Problem with Autopilot AI
-
-Most AI coding workflows look like this:
-```
-User: "Add authentication"
-AI: *generates 500 lines of code*
-User: "That's not what I wanted..."
-```
-
-PREVC fixes this:
-```
-P: What type of auth? OAuth, JWT, session? What providers?
-R: Here's the architecture. Dependencies: X, Y. Risks: Z. Approve?
-E: Implementing approved design...
-V: All 15 tests pass. Security audit complete.
-C: Deployed. Docs updated. Ready for review.
-```
-
-## Documentation
-
-- [User Guide](./docs/GUIDE.md) — Complete usage guide
-
-
-### Smart Project Detection
-
-The system automatically detects your project type and generates only relevant scaffolds:
-
-| Project Type | Detected By | Docs | Agents |
-|--------------|-------------|------|--------|
-| **CLI** | `bin` field, commander/yargs | Core docs | Core agents |
-| **Web Frontend** | React, Vue, Angular, Svelte | + architecture, security | + frontend, devops |
-| **Web Backend** | Express, NestJS, FastAPI | + architecture, data-flow, security | + backend, database, devops |
-| **Full Stack** | Both frontend + backend | All docs | All agents |
-| **Mobile** | React Native, Flutter | + architecture, security | + mobile, devops |
-| **Library** | `main`/`exports` without `bin` | Core docs | Core agents |
-| **Monorepo** | Lerna, Nx, Turborepo | All docs | All agents |
-
-**Core scaffolds** (always included):
-- Docs: project-overview, development-workflow, testing-strategy, tooling
-- Agents: code-reviewer, bug-fixer, feature-developer, refactoring-specialist, test-writer, documentation-writer, performance-optimizer
-
-### Scale-Adaptive Routing
-
-The system automatically detects project scale and adjusts the workflow:
-
-| Scale | Phases | Use Case |
-|-------|--------|----------|
-| QUICK | E → V | Bug fixes, small tweaks |
-| SMALL | P → E → V | Simple features |
-| MEDIUM | P → R → E → V | Regular features |
-| LARGE | P → R → E → V → C | Complex systems, compliance |
-
-## Requirements for the CLI
-
-- Node.js 20+
-- API key from a supported provider (for AI features)
-
-**If you are using throught MCP you don't need to setup an API key from a supported provider, your AI agent will use it's own LLM.**
-
-
-## Supported Providers
-
-| Provider | Environment Variable |
-|----------|---------------------|
-| OpenRouter | `OPENROUTER_API_KEY` |
-| OpenAI | `OPENAI_API_KEY` |
-| Anthropic | `ANTHROPIC_API_KEY` |
-| Google | `GOOGLE_API_KEY` |
+1. Crie um arquivo `.env` com sua API key do provedor (veja [Provedores Suportados](#supported-providers))
+2. Execute `npx @ai-coders/context`
+3. Selecione "Usar a CLI interativa" quando solicitado
 
 ## MCP Server Setup
 
@@ -193,7 +89,7 @@ This package includes an MCP (Model Context Protocol) server that provides AI co
 
 ### Quick Installation (v0.7.0+)
 
-Use the new MCP Install command to automatically configure the MCP server:
+Use the MCP Install command to automatically configure the MCP server:
 
 ```bash
 npx @ai-coders/context mcp:install
@@ -401,6 +297,149 @@ For local development, point directly to the built distribution:
   }
 }
 ```
+
+## Youtube video
+[![Watch the video](https://img.youtube.com/vi/p9uV3CeLaKY/0.jpg)](https://www.youtube.com/watch?v=p9uV3CeLaKY)
+
+## Connect with Us
+
+Built by [AI Coders Academy](http://aicoders.academy/) — Learn AI-assisted development and become a more productive developer.
+
+- [AI Coders Academy](http://aicoders.academy/) — Courses and resources for AI-powered coding
+- [YouTube Channel](https://www.youtube.com/@aicodersacademy) — Tutorials, demos, and best practices
+- [Connect with Vini](https://www.linkedin.com/in/viniciuslanadepaula/) — Creator of @ai-coders/context
+
+
+## Why PREVC?
+
+### English
+
+LLMs produce better results when they follow a structured process instead of generating code blindly. PREVC ensures:
+
+- **Specifications before code** — AI understands what to build before building it
+- **Context awareness** — Each phase has the right documentation and agent
+- **Human checkpoints** — Review and validate at each step, not just at the end
+- **Reproducible quality** — Same process, consistent results across projects
+
+### Português
+
+LLMs produzem melhores resultados quando seguem um processo estruturado em vez de gerar código cegamente. PREVC garante:
+
+- **Especificações antes do código** — IA entende o que construir antes de construir
+- **Consciência de contexto** — Cada fase tem a documentação e o agente corretos
+- **Checkpoints humanos** — Revise e valide em cada etapa, não apenas no final
+- **Qualidade reproduzível** — Mesmo processo, resultados consistentes entre projetos
+
+## What it does / O que faz
+
+### English
+
+1. **Creates documentation** — Structured docs from your codebase (architecture, data flow, decisions)
+2. **Generates agent playbooks** — 14 specialized AI agents (code-reviewer, bug-fixer, architect, etc.)
+3. **Smart scaffold filtering** — Automatically detects project type and generates only relevant content
+4. **Useful out-of-the-box** — Scaffolds include practical template content, not empty placeholders
+5. **Manages workflows** — PREVC process with scale detection, gates, and execution history
+6. **Provides skills** — On-demand expertise (commit messages, PR reviews, security audits)
+7. **Syncs everywhere** — Export to Cursor, Claude, Copilot, Windsurf, Cline, Codex, Antigravity, Trae, and more
+8. **Tracks execution** — Step-level tracking with git integration for workflow phases
+9. **Keeps it updated** — Detects code changes and suggests documentation updates
+
+### Português
+
+1. **Cria documentação** — Docs estruturados do seu codebase (arquitetura, fluxo de dados, decisões)
+2. **Gera playbooks de agentes** — 14 agentes de IA especializados (code-reviewer, bug-fixer, architect, etc.)
+3. **Filtragem inteligente de scaffold** — Detecta automaticamente o tipo de projeto e gera apenas conteúdo relevante
+4. **Útil de imediato** — Scaffolds incluem conteúdo prático, não placeholders vazios
+5. **Gerencia workflows** — Processo PREVC com detecção de escala, gates e histórico de execução
+6. **Fornece skills** — Expertise sob demanda (mensagens de commit, revisões de PR, auditorias de segurança)
+7. **Sincroniza em todos os lugares** — Exporte para Cursor, Claude, Copilot, Windsurf, Cline, Codex, Antigravity, Trae e mais
+8. **Rastreia execução** — Rastreamento por etapa com integração git para fases de workflow
+9. **Mantém atualizado** — Detecta mudanças no código e sugere atualizações de documentação
+
+PT-BR Tutorial
+https://www.youtube.com/watch?v=5BPrfZAModk
+
+## PREVC Workflow System
+
+A universal 5-phase process designed to improve LLM output quality through structured, spec-driven development:
+
+| Phase | Name | Purpose |
+|-------|------|---------|
+| **P** | Planning | Define what to build. Gather requirements, write specs, identify scope. No code yet. |
+| **R** | Review | Validate the approach. Architecture decisions, technical design, risk assessment. |
+| **E** | Execution | Build it. Implementation follows the approved specs and design. |
+| **V** | Validation | Verify it works. Tests, QA, code review against original specs. |
+| **C** | Confirmation | Ship it. Documentation, deployment, stakeholder handoff. |
+
+### The Problem with Autopilot AI
+
+Most AI coding workflows look like this:
+```
+User: "Add authentication"
+AI: *generates 500 lines of code*
+User: "That's not what I wanted..."
+```
+
+PREVC fixes this:
+```
+P: What type of auth? OAuth, JWT, session? What providers?
+R: Here's the architecture. Dependencies: X, Y. Risks: Z. Approve?
+E: Implementing approved design...
+V: All 15 tests pass. Security audit complete.
+C: Deployed. Docs updated. Ready for review.
+```
+
+## Documentation
+
+- [User Guide](./docs/GUIDE.md) — Complete usage guide
+
+
+### Smart Project Detection
+
+The system automatically detects your project type and generates only relevant scaffolds:
+
+| Project Type | Detected By | Docs | Agents |
+|--------------|-------------|------|--------|
+| **CLI** | `bin` field, commander/yargs | Core docs | Core agents |
+| **Web Frontend** | React, Vue, Angular, Svelte | + architecture, security | + frontend, devops |
+| **Web Backend** | Express, NestJS, FastAPI | + architecture, data-flow, security | + backend, database, devops |
+| **Full Stack** | Both frontend + backend | All docs | All agents |
+| **Mobile** | React Native, Flutter | + architecture, security | + mobile, devops |
+| **Library** | `main`/`exports` without `bin` | Core docs | Core agents |
+| **Monorepo** | Lerna, Nx, Turborepo | All docs | All agents |
+
+**Core scaffolds** (always included):
+- Docs: project-overview, development-workflow, testing-strategy, tooling
+- Agents: code-reviewer, bug-fixer, feature-developer, refactoring-specialist, test-writer, documentation-writer, performance-optimizer
+
+### Scale-Adaptive Routing
+
+The system automatically detects project scale and adjusts the workflow:
+
+| Scale | Phases | Use Case |
+|-------|--------|----------|
+| QUICK | E → V | Bug fixes, small tweaks |
+| SMALL | P → E → V | Simple features |
+| MEDIUM | P → R → E → V | Regular features |
+| LARGE | P → R → E → V → C | Complex systems, compliance |
+
+## CLI Reference
+
+### Requirements
+
+- Node.js 20+
+- API key from a supported provider (for AI features in standalone CLI mode)
+
+**If you are using through MCP you don't need to set up an API key from a supported provider, your AI agent will use its own LLM.**
+
+### Supported Providers
+
+| Provider | Environment Variable |
+|----------|---------------------|
+| OpenRouter | `OPENROUTER_API_KEY` |
+| OpenAI | `OPENAI_API_KEY` |
+| Anthropic | `ANTHROPIC_API_KEY` |
+| Google | `GOOGLE_API_KEY` |
 
 ### Available MCP Tools
 
