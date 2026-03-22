@@ -26,6 +26,10 @@ const englishMessages = {
   'ui.generationSummary.timeElapsed': 'Time',
   'ui.generationSummary.nextStep': 'Next step: customize the generated templates to match your project.',
   'ui.error.title': 'Error',
+  'ui.splash.modelLabel': 'model',
+  'ui.splash.directoryLabel': 'directory',
+  'ui.splash.modelDefault': 'default',
+  'ui.splash.modelConfigured': '{provider} configured',
   'ui.prevc.title': 'PREVC Workflow - Spec-Driven Development for AI Agents',
   'ui.prevc.subtitle': 'A universal 5-step process that improves AI output quality',
   'ui.prevc.specDriven': 'Spec-driven, not autopilot. Define what you want, then let AI execute.',
@@ -200,6 +204,7 @@ const englishMessages = {
   'agent.type.playbook': 'Playbook Agent',
   'agent.type.plan': 'Plan Agent',
   'agent.type.fill': 'Fill Agent',
+  'agent.type.skill': 'Skill Agent',
   'commands.sync.description': 'Sync agent playbooks to AI tool directories (.claude, .github, etc.)',
   'commands.sync.options.source': 'Source agents directory',
   'commands.sync.options.target': 'Target directories to sync to',
@@ -211,10 +216,12 @@ const englishMessages = {
   'prompts.main.choice.syncAgents': 'Sync agents to AI tools',
   'prompts.main.choice.create': 'Create documentation for this project',
   'prompts.main.choice.moreOptions': 'More options...',
+  'prompts.main.choice.viewPending': 'View pending files',
   'prompts.main.choice.updateDocs': 'Update documentation',
   'prompts.main.choice.updateDocsBehind': 'Update documentation ({daysBehind} days behind)',
   'prompts.main.choice.rescaffold': 'Re-scaffold (overwrite)',
   'prompts.main.unfilledPrompt': '{count} files need to be filled. What would you like to do?',
+  'prompts.main.pendingFilesHeader': 'Files pending content:',
   'prompts.setup.confirmContinue': 'This will create and fill documentation. Continue?',
   'spinner.setup.creatingStructure': 'Creating documentation structure...',
   'spinner.setup.fillingDocs': 'Filling documentation with AI...',
@@ -327,6 +334,9 @@ const englishMessages = {
   'commands.start.options.template': 'Workflow template: hotfix, feature, mvp, or auto',
   'commands.start.options.skipFill': 'Skip AI-assisted documentation filling',
   'commands.start.options.skipWorkflow': 'Skip workflow initialization',
+  'commands.previewSplash.description': 'Render the interactive splash screen preview',
+  'commands.previewSplash.options.title': 'Override the splash title',
+  'commands.previewSplash.options.directory': 'Directory to display in the splash',
   'spinner.start.detectingStack': 'Detecting technology stack...',
   'spinner.start.stackDetected': 'Stack detected: {stack}',
   'spinner.start.initializing': 'Initializing project context...',
@@ -483,7 +493,8 @@ const englishMessages = {
   // Manage submenus
   'prompts.main.choice.manageSkills': 'Manage Skills',
   'prompts.main.choice.manageAgents': 'Manage Agents',
-  'prompts.main.choice.settings': 'Settings',
+  'prompts.main.choice.settings': 'Settings (language)',
+  'prompts.main.choice.mcpInstall': 'Install/Configure MCP',
   'prompts.main.choice.startWorkflow': 'Start Workflow',
   'prompts.main.choice.createPlan': 'Create Plan',
   'prompts.main.choice.quickSetup': 'Quick Setup (creates context from codebase)',
@@ -505,15 +516,43 @@ const englishMessages = {
   'prompts.settings.action': 'Settings:',
   'prompts.settings.choice.language': 'Change language',
   'prompts.settings.choice.back': 'Back',
+  // Mode selection (interactive entry)
+  'prompts.modeSelect.select': 'How would you like to use @ai-coders/context?',
+  'prompts.modeSelect.choice.mcp': 'Set up MCP for my AI tool (recommended — no API key needed)',
+  'prompts.modeSelect.choice.cli': 'Use the interactive CLI (requires API key from a provider)',
+  'prompts.modeSelect.choice.exit': 'Exit',
+  // More options submenu
+  'prompts.more.action': 'More options:',
+  'prompts.more.choice.back': 'Back',
+  // Quick Sync mode
+  'prompts.quickSync.mode': 'Sync all (agents, skills, docs) to common targets?',
+  'prompts.quickSync.mode.syncAll': 'Yes, sync all',
+  'prompts.quickSync.mode.customize': 'Customize targets...',
+  'prompts.quickSync.mode.cancel': 'Cancel',
   // Compact status
-  'status.compact': 'Docs: {docs} | Agents: {agents} synced | Skills: {skills} active',
-  'status.outdated': 'Docs: {docs} ({days}d old) | Agents: {agents} | Skills: {skills}',
-  'status.new': 'No context found.',
-  'status.unfilled': 'Context: {count} files need filling',
+  'status.compact': '✓ Context ready ({docs} docs, {agents} agents, {skills} skills)',
+  'status.outdated': '⚠ Context outdated ({days} days) - run Update Docs',
+  'status.new': 'No context found',
+  'status.unfilled': 'Context scaffolded, {count} files need content',
+  'status.detected.project': 'Detected: {languages} project',
+  'status.detected.provider': '{provider} provider configured',
   // Hit Enter / Press Enter
   'prompts.pressEnter': 'Press Enter to continue...',
   // Environment variable loading
-  'prompts.env.loadEnv': 'Load environment variables from .env file?'
+  'prompts.env.loadEnv': 'Load environment variables from .env file?',
+  // Config summary labels
+  'configSummary.config': 'Config:',
+  'configSummary.options': 'Options:',
+  'configSummary.repo': 'repo',
+  'configSummary.provider': 'provider',
+  'configSummary.yes': 'Yes',
+  'configSummary.no': 'No',
+  // API key validation
+  'warnings.apiKey.empty': 'API key is empty. LLM calls will likely fail.',
+  'warnings.apiKey.formatMismatch': 'API key does not start with expected prefix "{prefix}" for {provider}. It may still work if correct.',
+  // Back/cancel options
+  'prompts.analysis.back': 'Back (cancel analysis options)',
+  'prompts.llm.back': 'Back (cancel LLM configuration)'
 } as const;
 
 export type TranslationKey = keyof typeof englishMessages;
@@ -543,6 +582,10 @@ const portugueseMessages: TranslationDictionary = {
   'ui.generationSummary.timeElapsed': 'Tempo',
   'ui.generationSummary.nextStep': 'Próximo passo: personalize os templates gerados para o seu projeto.',
   'ui.error.title': 'Erro',
+  'ui.splash.modelLabel': 'modelo',
+  'ui.splash.directoryLabel': 'diretorio',
+  'ui.splash.modelDefault': 'padrao',
+  'ui.splash.modelConfigured': '{provider} configurado',
   'ui.prevc.title': 'PREVC Workflow - Desenvolvimento Orientado a Specs para Agentes IA',
   'ui.prevc.subtitle': 'Um processo universal de 5 etapas que melhora a qualidade do output da IA',
   'ui.prevc.specDriven': 'Orientado a specs, não em piloto automático. Defina o que você quer, depois deixe a IA executar.',
@@ -717,6 +760,7 @@ const portugueseMessages: TranslationDictionary = {
   'agent.type.playbook': 'Agente de Playbook',
   'agent.type.plan': 'Agente de Plano',
   'agent.type.fill': 'Agente de Preenchimento',
+  'agent.type.skill': 'Agente de Skill',
   'commands.sync.description': 'Sincronizar playbooks de agentes com diretórios de ferramentas IA (.claude, .github, etc.)',
   'commands.sync.options.source': 'Diretório de origem dos agentes',
   'commands.sync.options.target': 'Diretórios de destino para sincronizar',
@@ -728,10 +772,12 @@ const portugueseMessages: TranslationDictionary = {
   'prompts.main.choice.syncAgents': 'Sincronizar agentes com ferramentas IA',
   'prompts.main.choice.create': 'Criar documentação para este projeto',
   'prompts.main.choice.moreOptions': 'Mais opções...',
+  'prompts.main.choice.viewPending': 'Ver arquivos pendentes',
   'prompts.main.choice.updateDocs': 'Atualizar documentação',
   'prompts.main.choice.updateDocsBehind': 'Atualizar documentação ({daysBehind} dias atrás)',
   'prompts.main.choice.rescaffold': 'Refazer scaffold (sobrescrever)',
   'prompts.main.unfilledPrompt': '{count} arquivos precisam ser preenchidos. O que você gostaria de fazer?',
+  'prompts.main.pendingFilesHeader': 'Arquivos pendentes de conteúdo:',
   'prompts.setup.confirmContinue': 'Isso criará e preencherá a documentação. Continuar?',
   'spinner.setup.creatingStructure': 'Criando estrutura de documentação...',
   'spinner.setup.fillingDocs': 'Preenchendo documentação com IA...',
@@ -844,6 +890,9 @@ const portugueseMessages: TranslationDictionary = {
   'commands.start.options.template': 'Template de workflow: hotfix, feature, mvp ou auto',
   'commands.start.options.skipFill': 'Pular preenchimento de documentação com IA',
   'commands.start.options.skipWorkflow': 'Pular inicialização do workflow',
+  'commands.previewSplash.description': 'Renderizar uma previa da splash screen interativa',
+  'commands.previewSplash.options.title': 'Sobrescrever o titulo da splash',
+  'commands.previewSplash.options.directory': 'Diretorio exibido na splash',
   'spinner.start.detectingStack': 'Detectando stack de tecnologia...',
   'spinner.start.stackDetected': 'Stack detectada: {stack}',
   'spinner.start.initializing': 'Inicializando contexto do projeto...',
@@ -1000,7 +1049,8 @@ const portugueseMessages: TranslationDictionary = {
   // Manage submenus
   'prompts.main.choice.manageSkills': 'Gerenciar Skills',
   'prompts.main.choice.manageAgents': 'Gerenciar Agents',
-  'prompts.main.choice.settings': 'Configurações',
+  'prompts.main.choice.settings': 'Configurações (idioma)',
+  'prompts.main.choice.mcpInstall': 'Instalar/Configurar MCP',
   'prompts.main.choice.startWorkflow': 'Iniciar Workflow',
   'prompts.main.choice.createPlan': 'Criar Plano',
   'prompts.main.choice.quickSetup': 'Setup Rápido (cria contexto do codebase)',
@@ -1022,15 +1072,43 @@ const portugueseMessages: TranslationDictionary = {
   'prompts.settings.action': 'Configurações:',
   'prompts.settings.choice.language': 'Mudar idioma',
   'prompts.settings.choice.back': 'Voltar',
+  // Mode selection (interactive entry)
+  'prompts.modeSelect.select': 'Como você gostaria de usar o @ai-coders/context?',
+  'prompts.modeSelect.choice.mcp': 'Configurar MCP para minha ferramenta de IA (recomendado — sem API key)',
+  'prompts.modeSelect.choice.cli': 'Usar a CLI interativa (requer API key de um provedor)',
+  'prompts.modeSelect.choice.exit': 'Sair',
+  // More options submenu
+  'prompts.more.action': 'Mais opções:',
+  'prompts.more.choice.back': 'Voltar',
+  // Quick Sync mode
+  'prompts.quickSync.mode': 'Sincronizar tudo (agents, skills, docs) para destinos comuns?',
+  'prompts.quickSync.mode.syncAll': 'Sim, sincronizar tudo',
+  'prompts.quickSync.mode.customize': 'Personalizar destinos...',
+  'prompts.quickSync.mode.cancel': 'Cancelar',
   // Compact status
-  'status.compact': 'Docs: {docs} | Agents: {agents} synced | Skills: {skills} ativos',
-  'status.outdated': 'Docs: {docs} ({days}d atrás) | Agents: {agents} | Skills: {skills}',
-  'status.new': 'Nenhum contexto encontrado.',
-  'status.unfilled': 'Contexto: {count} arquivos precisam preenchimento',
+  'status.compact': '✓ Contexto pronto ({docs} docs, {agents} agents, {skills} skills)',
+  'status.outdated': '⚠ Contexto desatualizado ({days} dias) - execute Atualizar Docs',
+  'status.new': 'Nenhum contexto encontrado',
+  'status.unfilled': 'Contexto scaffolded, {count} arquivos precisam de conteúdo',
+  'status.detected.project': 'Detectado: projeto {languages}',
+  'status.detected.provider': 'provedor {provider} configurado',
   // Hit Enter / Press Enter
   'prompts.pressEnter': 'Pressione Enter para continuar...',
   // Environment variable loading
-  'prompts.env.loadEnv': 'Carregar variáveis de ambiente do arquivo .env?'
+  'prompts.env.loadEnv': 'Carregar variáveis de ambiente do arquivo .env?',
+  // Config summary labels
+  'configSummary.config': 'Configuração:',
+  'configSummary.options': 'Opções:',
+  'configSummary.repo': 'repo',
+  'configSummary.provider': 'provedor',
+  'configSummary.yes': 'Sim',
+  'configSummary.no': 'Não',
+  // API key validation
+  'warnings.apiKey.empty': 'A chave de API está vazia. Chamadas ao LLM provavelmente falharão.',
+  'warnings.apiKey.formatMismatch': 'A chave de API não começa com o prefixo esperado "{prefix}" para {provider}. Pode funcionar se estiver correta.',
+  // Back/cancel options
+  'prompts.analysis.back': 'Voltar (cancelar opções de análise)',
+  'prompts.llm.back': 'Voltar (cancelar configuração do LLM)'
 };
 
 const dictionaries: Record<Locale, TranslationDictionary> = {
@@ -1053,17 +1131,27 @@ export function createTranslator(locale: Locale): TranslateFn {
 }
 
 export function normalizeLocale(locale: string): Locale {
-  return SUPPORTED_LOCALES.find(candidate => candidate.toLowerCase() === locale.toLowerCase()) || DEFAULT_LOCALE;
+  return resolveLocaleCandidate(locale) || DEFAULT_LOCALE;
 }
 
-export function detectLocale(argv: string[], envLocale?: string | null): Locale {
-  const candidateFromArgs = extractLocaleFromArgs(argv);
-  if (candidateFromArgs) {
-    return normalizeLocale(candidateFromArgs);
+export function detectLocale(
+  argv: string[],
+  envLocale?: string | null,
+  systemLocaleCandidates: Array<string | null | undefined> = []
+): Locale {
+  const candidates = [
+    extractLocaleFromArgs(argv),
+    envLocale,
+    ...systemLocaleCandidates
+  ];
+
+  for (const candidate of candidates) {
+    const resolved = resolveLocaleCandidate(candidate);
+    if (resolved) {
+      return resolved;
+    }
   }
-  if (envLocale) {
-    return normalizeLocale(envLocale);
-  }
+
   return DEFAULT_LOCALE;
 }
 
@@ -1095,4 +1183,35 @@ function fillTemplate(template: string, params?: TranslateParams): string {
 
 export function isSupportedLocale(locale: string): boolean {
   return SUPPORTED_LOCALES.some(candidate => candidate.toLowerCase() === locale.toLowerCase());
+}
+
+function resolveLocaleCandidate(locale?: string | null): Locale | undefined {
+  if (!locale) {
+    return undefined;
+  }
+
+  const trimmed = locale.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const directMatch = SUPPORTED_LOCALES.find(candidate => candidate.toLowerCase() === trimmed.toLowerCase());
+  if (directMatch) {
+    return directMatch;
+  }
+
+  const normalized = trimmed.replace(/_/g, '-').split('.')[0].toLowerCase();
+  if (normalized === 'c' || normalized === 'posix') {
+    return undefined;
+  }
+
+  if (normalized === 'pt' || normalized.startsWith('pt-')) {
+    return 'pt-BR';
+  }
+
+  if (normalized === 'en' || normalized.startsWith('en-')) {
+    return 'en';
+  }
+
+  return undefined;
 }

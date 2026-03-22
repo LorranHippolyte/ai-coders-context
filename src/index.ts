@@ -5,7 +5,13 @@ import * as path from 'path';
 import * as dotenv from 'dotenv';
 import inquirer from 'inquirer';
 
-import { colors } from './utils/theme';
+import { colors, typography } from './utils/theme';
+import {
+  formatSplashDirectory,
+  packageNameToDisplayName,
+  renderSplashScreen
+} from './utils/splashScreen';
+import { themedSelect, themedConfirm, Separator } from './utils/themedPrompt';
 import { PlanGenerator } from './generators/plans/planGenerator';
 import { CLIInterface } from './utils/cliUI';
 import { checkForUpdates } from './utils/versionChecker';
@@ -57,10 +63,14 @@ const isInteractiveMode = rawArgs.every(arg =>
 // Load dotenv immediately for command-line mode (not MCP, not interactive)
 // For interactive mode, we'll ask the user first
 if (!isMcpCommand && !isInteractiveMode) {
-  dotenv.config();
+  dotenv.config({ quiet: true });
 }
 
-const initialLocale = detectLocale(rawArgs, process.env.AI_CONTEXT_LANG);
+const initialLocale = detectLocale(rawArgs, process.env.AI_CONTEXT_LANG, [
+  process.env.LC_ALL,
+  process.env.LC_MESSAGES,
+  process.env.LANG
+]);
 let currentLocale: Locale = initialLocale;
 let translateFn = createTranslator(initialLocale);
 const t: TranslateFn = (key, params) => translateFn(key, params);
@@ -590,6 +600,21 @@ program
     }
   });
 
+program
+  .command('preview-splash')
+  .description(t('commands.previewSplash.description'))
+  .option('--title <title>', t('commands.previewSplash.options.title'))
+  .option('--directory <path>', t('commands.previewSplash.options.directory'), process.cwd())
+  .option('--model <model>', t('commands.fill.options.model'))
+  .action(async (options: any) => {
+    try {
+      await renderStartupSplash(options.directory, options.title, options.model);
+    } catch (error) {
+      ui.displayError(t('errors.cli.executionFailed'), error as Error);
+      process.exit(1);
+    }
+  });
+
 // Export Rules Command
 program
   .command('export-rules')
@@ -697,18 +722,14 @@ export async function runLlmFill(repoPath: string, rawOptions: any): Promise<voi
 }
 
 async function selectLocale(showWelcome: boolean): Promise<void> {
-  const { locale } = await inquirer.prompt<{ locale: Locale }>([
-    {
-      type: 'list',
-      name: 'locale',
-      message: t('prompts.language.select'),
-      default: currentLocale,
-      choices: SUPPORTED_LOCALES.map(option => ({
-        value: option,
-        name: t(localeLabelKeys[option])
-      }))
-    }
-  ]);
+  const locale = await themedSelect<Locale>({
+    message: t('prompts.language.select'),
+    default: currentLocale,
+    choices: SUPPORTED_LOCALES.map(option => ({
+      value: option,
+      name: t(localeLabelKeys[option])
+    }))
+  });
 
   const normalizedLocale = normalizeLocale(locale);
   currentLocale = normalizedLocale;
@@ -720,70 +741,72 @@ async function selectLocale(showWelcome: boolean): Promise<void> {
   }
 }
 
-type InteractiveAction = 'scaffold' | 'fill' | 'plan' | 'syncAgents' | 'update' | 'workflow' | 'skills' | 'changeLanguage' | 'exit' | 'quickSync' | 'reverseSync' | 'agents' | 'settings';
-type StateAction = 'create' | 'enhance' | 'fill' | 'menu' | 'exit' | 'scaffold';
+type InteractiveAction = 'scaffold' | 'fill' | 'plan' | 'syncAgents' | 'update' | 'workflow' | 'skills' | 'changeLanguage' | 'exit' | 'quickSync' | 'reverseSync' | 'agents' | 'settings' | 'mcpInstall' | 'viewPending';
+type StateAction = 'create' | 'enhance' | 'fill' | 'exit' | 'scaffold' | 'viewPending';
 
 async function runInteractive(): Promise<void> {
-  await selectLocale(false); // Don't show welcome yet
-
-  // Ask user if they want to load environment variables from .env
-  const loadEnv = await promptLoadEnv(t);
-  if (loadEnv) {
-    dotenv.config();
-  }
-
-  // Show welcome screen with PREVC explanation
-  ui.displayWelcome(VERSION);
-  ui.displayPrevcExplanation();
-
-  // Wait for user to press Enter
-  await inquirer.prompt([
-    {
-      type: 'input',
-      name: 'continue',
-      message: t('prompts.pressEnter'),
-    },
-  ]);
-
-  console.log('\n');
+  // Auto-load .env if it exists (no-op if absent)
+  dotenv.config({ quiet: true });
 
   const projectPath = process.cwd();
   const detector = new StateDetector({ projectPath });
   const result = await detector.detect();
 
-  // Get quick stats for compact status
-  const quickSyncService = new QuickSyncService({
-    ui,
-    t,
-    version: VERSION,
-    defaultModel: DEFAULT_MODEL,
-  });
-  const stats = await quickSyncService.getStats(projectPath);
+  // Detect smart defaults for display
+  const defaults = await detectSmartDefaults(projectPath);
 
-  // Display compact header
   console.log('');
-  console.log(`${colors.primaryBold(`${PACKAGE_NAME}`)} ${colors.secondary(`v${VERSION}`)}`);
-  console.log(`${colors.secondary('Project:')} ${projectPath}`);
+  console.log(renderSplashScreen({
+    title: packageNameToDisplayName(PACKAGE_NAME),
+    version: VERSION,
+    lines: [
+      {
+        label: t('ui.splash.modelLabel'),
+        value: defaults.model || DEFAULT_MODEL,
+        note: defaults.provider && defaults.apiKeyConfigured
+          ? t('ui.splash.modelConfigured', { provider: defaults.provider })
+          : t('ui.splash.modelDefault')
+      },
+      {
+        label: t('ui.splash.directoryLabel'),
+        value: formatSplashDirectory(projectPath)
+      }
+    ]
+  }));
+
+  // Show what was detected from environment/project
+  const detectedParts: string[] = [];
+  if (defaults.detectedLanguages.length > 0) {
+    const langs = defaults.detectedLanguages.map(l => l.charAt(0).toUpperCase() + l.slice(1)).join(', ');
+    detectedParts.push(t('status.detected.project', { languages: langs }));
+  }
+  if (defaults.provider && defaults.apiKeyConfigured) {
+    detectedParts.push(t('status.detected.provider', { provider: defaults.provider }));
+  }
+  if (detectedParts.length > 0) {
+    console.log(colors.secondaryDim(detectedParts.join(', ')));
+  }
 
   // Show compact status line based on state
-  switch (result.state) {
-    case 'new':
-      console.log(colors.secondaryDim(t('status.new')));
-      break;
-    case 'unfilled':
-      console.log(colors.secondaryDim(t('status.unfilled', { count: result.details.unfilledFiles })));
-      break;
-    case 'outdated':
+  if (result.state === 'new') {
+    console.log(colors.secondaryDim(t('status.new')));
+  } else if (result.state === 'unfilled') {
+    console.log(colors.secondaryDim(t('status.unfilled', { count: result.details.unfilledFiles })));
+  } else {
+    // Get quick stats only when we have context
+    const quickSyncService = new QuickSyncService({
+      ui,
+      t,
+      version: VERSION,
+      defaultModel: DEFAULT_MODEL,
+    });
+    const stats = await quickSyncService.getStats(projectPath);
+
+    if (result.state === 'outdated') {
       console.log(colors.warning(
-        t('status.outdated', {
-          docs: stats.docs,
-          days: result.details.daysBehind || 0,
-          agents: stats.agents,
-          skills: stats.skills
-        })
+        t('status.outdated', { days: result.details.daysBehind || 0 })
       ));
-      break;
-    case 'ready':
+    } else {
       console.log(colors.success(
         t('status.compact', {
           docs: stats.docs,
@@ -791,61 +814,41 @@ async function runInteractive(): Promise<void> {
           skills: stats.skills
         })
       ));
-      break;
+    }
   }
   console.log('');
 
-  // Handle state-based flow
+  // Handle state-based flow: auto-detect what to show
   if (result.state === 'new') {
-    const { action } = await inquirer.prompt<{ action: StateAction }>([
-      {
-        type: 'list',
-        name: 'action',
-        message: t('prompts.main.action'),
-        choices: [
-          { name: t('prompts.main.choice.quickSetup'), value: 'create' },
-          { name: t('prompts.main.choice.enhanceWithAI'), value: 'enhance' },
-          { name: t('prompts.main.choice.exit'), value: 'exit' }
-        ]
-      }
-    ]);
+    // New project: show quick setup options + MCP install
+    const action = await themedSelect<StateAction>({
+      message: t('prompts.main.action'),
+      choices: [
+        { name: t('prompts.main.choice.quickSetup'), value: 'create' },
+        { name: t('prompts.main.choice.enhanceWithAI'), value: 'enhance' },
+        { name: t('prompts.main.choice.mcpInstall'), value: 'scaffold' },
+        { name: t('prompts.main.choice.exit'), value: 'exit' }
+      ]
+    });
 
     if (action === 'create') {
-      // Quick Setup: scaffold with semantic autoFill (no AI required)
       await runQuickSetup(projectPath);
     } else if (action === 'enhance') {
-      // First scaffold, then enhance with AI
       await runQuickSetup(projectPath);
       await runEnhanceWithAI(projectPath);
+    } else if (action === 'scaffold') {
+      await runMcpInstall();
     }
-    return;
-  }
 
-  if (result.state === 'unfilled') {
-    const { action } = await inquirer.prompt<{ action: StateAction }>([
-      {
-        type: 'list',
-        name: 'action',
-        message: t('prompts.main.unfilledPrompt', { count: result.details.unfilledFiles }),
-        choices: [
-          { name: t('prompts.main.choice.fill'), value: 'fill' },
-          { name: t('prompts.main.choice.moreOptions'), value: 'menu' },
-          { name: t('prompts.main.choice.exit'), value: 'exit' }
-        ]
-      }
-    ]);
-
-    if (action === 'fill') {
-      await runInteractiveLlmFill();
-      return;
-    } else if (action === 'menu') {
+    const postOnboardingState = await detector.detect();
+    if (postOnboardingState.state !== 'new') {
       await runFullMenu();
     }
     return;
   }
 
-  // For 'ready' or 'outdated' states, show full menu
-  await runFullMenu(result.state === 'outdated' ? result.details.daysBehind : undefined);
+  // For any project that has completed onboarding, always show the full menu.
+  await runFullMenu();
 }
 
 async function runQuickSetup(projectPath: string): Promise<void> {
@@ -937,99 +940,146 @@ async function runEnhanceWithAI(projectPath: string): Promise<void> {
   }
 }
 
-async function runFullMenu(daysBehind?: number): Promise<void> {
+async function runFullMenu(): Promise<void> {
   let exitRequested = false;
   while (!exitRequested) {
-    const updateLabel = daysBehind
-      ? t('prompts.main.choice.updateDocsBehind', { daysBehind })
-      : t('prompts.main.choice.updateDocs');
+    const detector = new StateDetector({ projectPath: process.cwd() });
+    const state = await detector.detect();
+    const isUnfilled = state.state === 'unfilled';
+    const fillLabel = isUnfilled
+      ? t('prompts.main.choice.fill')
+      : state.state === 'outdated'
+        ? t('prompts.main.choice.updateDocsBehind', { daysBehind: state.details.daysBehind || 0 })
+        : t('prompts.main.choice.updateDocs');
 
-    // New menu structure with separators - organized by frequency of use
-    const choices = [
-      // Quick Actions (most used)
-      { name: t('prompts.main.choice.quickSync'), value: 'quickSync' as InteractiveAction },
-      { name: t('prompts.main.choice.reverseSync'), value: 'reverseSync' as InteractiveAction },
-      { name: t('prompts.main.choice.startWorkflow'), value: 'workflow' as InteractiveAction },
-      { name: t('prompts.main.choice.createPlan'), value: 'plan' as InteractiveAction },
-      new inquirer.Separator(),
-      // Manage
-      { name: updateLabel, value: 'fill' as InteractiveAction },
-      { name: t('prompts.main.choice.manageSkills'), value: 'skills' as InteractiveAction },
-      { name: t('prompts.main.choice.manageAgents'), value: 'agents' as InteractiveAction },
-      new inquirer.Separator(),
-      // Config
-      { name: t('prompts.main.choice.rescaffold'), value: 'scaffold' as InteractiveAction },
-      { name: t('prompts.main.choice.settings'), value: 'settings' as InteractiveAction },
-      { name: t('prompts.main.choice.exit'), value: 'exit' as InteractiveAction }
-    ];
+    const choices = isUnfilled
+      ? [
+        { name: fillLabel, value: 'fill' as InteractiveAction },
+        { name: t('prompts.main.choice.viewPending'), value: 'viewPending' as InteractiveAction },
+        new Separator(),
+        { name: t('prompts.main.choice.quickSync'), value: 'quickSync' as InteractiveAction },
+        { name: t('prompts.main.choice.reverseSync'), value: 'reverseSync' as InteractiveAction },
+        { name: t('prompts.main.choice.startWorkflow'), value: 'workflow' as InteractiveAction },
+        { name: t('prompts.main.choice.createPlan'), value: 'plan' as InteractiveAction },
+        { name: t('prompts.main.choice.manageSkills'), value: 'skills' as InteractiveAction },
+        new Separator(),
+        { name: t('prompts.main.choice.manageAgents'), value: 'agents' as InteractiveAction },
+        { name: t('prompts.main.choice.rescaffold'), value: 'scaffold' as InteractiveAction },
+        { name: t('prompts.main.choice.mcpInstall'), value: 'mcpInstall' as InteractiveAction },
+        { name: t('prompts.main.choice.settings'), value: 'settings' as InteractiveAction },
+        { name: t('prompts.main.choice.exit'), value: 'exit' as InteractiveAction }
+      ]
+      : [
+        { name: t('prompts.main.choice.quickSync'), value: 'quickSync' as InteractiveAction },
+        { name: t('prompts.main.choice.reverseSync'), value: 'reverseSync' as InteractiveAction },
+        { name: t('prompts.main.choice.startWorkflow'), value: 'workflow' as InteractiveAction },
+        { name: t('prompts.main.choice.createPlan'), value: 'plan' as InteractiveAction },
+        { name: fillLabel, value: 'fill' as InteractiveAction },
+        { name: t('prompts.main.choice.manageSkills'), value: 'skills' as InteractiveAction },
+        new Separator(),
+        { name: t('prompts.main.choice.manageAgents'), value: 'agents' as InteractiveAction },
+        { name: t('prompts.main.choice.rescaffold'), value: 'scaffold' as InteractiveAction },
+        { name: t('prompts.main.choice.mcpInstall'), value: 'mcpInstall' as InteractiveAction },
+        { name: t('prompts.main.choice.settings'), value: 'settings' as InteractiveAction },
+        { name: t('prompts.main.choice.exit'), value: 'exit' as InteractiveAction }
+      ];
 
-    const { action } = await inquirer.prompt<{ action: InteractiveAction }>([
-      {
-        type: 'list',
-        name: 'action',
-        message: t('prompts.main.action'),
-        choices
-      }
-    ]);
-
-    if (action === 'settings') {
-      await runSettings();
-      continue;
-    }
+    const action = await themedSelect<InteractiveAction>({
+      message: isUnfilled
+        ? t('prompts.main.unfilledPrompt', { count: state.details.unfilledFiles })
+        : t('prompts.main.action'),
+      choices
+    });
 
     if (action === 'exit') {
       exitRequested = true;
       break;
     }
 
+    if (action === 'viewPending') {
+      await displayPendingFiles(state.contextDir);
+      continue;
+    }
+
     if (action === 'quickSync') {
       await runQuickSync();
     } else if (action === 'reverseSync') {
       await runReverseSync();
-    } else if (action === 'scaffold') {
-      await runInteractiveScaffold();
     } else if (action === 'fill') {
       await runInteractiveLlmFill();
     } else if (action === 'plan') {
       await runInteractivePlan();
-    } else if (action === 'agents') {
-      await runManageAgents();
     } else if (action === 'workflow') {
       await runInteractiveWorkflow();
     } else if (action === 'skills') {
       await runInteractiveSkills();
+    } else if (action === 'agents') {
+      await runManageAgents();
+    } else if (action === 'scaffold') {
+      await runInteractiveScaffold();
+    } else if (action === 'mcpInstall') {
+      await runMcpInstall();
+    } else if (action === 'settings') {
+      await runSettings();
     }
-
-    ui.displayInfo(
-      t('info.interactive.returning.title'),
-      t('info.interactive.returning.detail')
-    );
   }
 
   ui.displaySuccess(t('success.interactive.goodbye'));
 }
 
+async function displayPendingFiles(contextDir: string): Promise<void> {
+  const { getUnfilledFiles } = await import('./utils/frontMatter');
+  const unfilled = await getUnfilledFiles(contextDir);
+
+  console.log();
+  console.log(typography.subheader(t('prompts.main.pendingFilesHeader')));
+  for (const file of unfilled) {
+    const relative = path.relative(contextDir, file);
+    console.log(`  ${colors.secondary('•')} ${colors.primary(relative)}`);
+  }
+  console.log();
+}
+
+async function runMcpInstall(): Promise<void> {
+  const mcpInstallService = new MCPInstallService({ ui, t, version: VERSION });
+  const supportedTools = mcpInstallService.getSupportedTools();
+  const detectedTools = await mcpInstallService.detectInstalledTools();
+
+  const mcpChoices = supportedTools.map(tool => ({
+    name: detectedTools.includes(tool.id)
+      ? `${tool.displayName} (${t('labels.detected')})`
+      : tool.displayName,
+    value: tool.id,
+  }));
+
+  mcpChoices.unshift({
+    name: t('commands.mcpInstall.allDetected'),
+    value: 'all',
+  });
+
+  const { selectedTool } = await inquirer.prompt([{
+    type: 'list',
+    name: 'selectedTool',
+    message: t('commands.mcpInstall.selectTool'),
+    choices: mcpChoices,
+  }]);
+
+  const mcpResult = await mcpInstallService.run({
+    tool: selectedTool,
+    global: true,
+    dryRun: false,
+    verbose: false,
+    repoPath: process.cwd(),
+  });
+
+  if (mcpResult.installations.length > 0) {
+    ui.displayInfo('MCP', t('info.mcp.restartTools'));
+  }
+}
+
 async function runInteractiveScaffold(): Promise<void> {
-  const { repoPath } = await inquirer.prompt<{ repoPath: string }>([
-    {
-      type: 'input',
-      name: 'repoPath',
-      message: t('prompts.scaffold.repoPath'),
-      default: process.cwd()
-    }
-  ]);
-
-  const resolvedRepo = path.resolve(repoPath.trim() || '.');
-  const defaultOutput = path.resolve(resolvedRepo, '.context');
-
-  const { outputDir } = await inquirer.prompt<{ outputDir: string }>([
-    {
-      type: 'input',
-      name: 'outputDir',
-      message: t('commands.init.options.output'),
-      default: defaultOutput
-    }
-  ]);
+  const resolvedRepo = process.cwd();
+  const outputDir = path.resolve(resolvedRepo, '.context');
 
   // Multi-select checkbox for scaffold components
   const { scaffoldComponents } = await inquirer.prompt<{ scaffoldComponents: string[] }>([
@@ -1051,14 +1101,7 @@ async function runInteractiveScaffold(): Promise<void> {
     return;
   }
 
-  const { verbose } = await inquirer.prompt<{ verbose: boolean }>([
-    {
-      type: 'confirm',
-      name: 'verbose',
-      message: t('prompts.common.verbose'),
-      default: false
-    }
-  ]);
+  const verbose = false;
 
   // Determine what to scaffold
   const scaffoldDocs = scaffoldComponents.includes('docs');
@@ -1126,143 +1169,42 @@ async function runInteractiveScaffold(): Promise<void> {
 
 async function runInteractiveLlmFill(): Promise<void> {
   const defaults = await detectSmartDefaults();
-  const interactiveMode = await promptInteractiveMode(t);
+  const resolvedRepo = defaults.repoPath;
 
-  if (interactiveMode === 'quick') {
-    // Quick mode: minimal prompts with smart defaults
-    const { confirmRepo } = await inquirer.prompt<{ confirmRepo: boolean }>([
-      {
-        type: 'confirm',
-        name: 'confirmRepo',
-        message: `${t('prompts.quick.confirmRepo')} (${defaults.repoPath})`,
-        default: true
-      }
-    ]);
+  // Get LLM config (auto-detected or prompt for API key)
+  const llmConfig = await promptLLMConfig(t, { defaultModel: DEFAULT_MODEL, skipIfConfigured: true });
 
-    const resolvedRepo = confirmRepo ? defaults.repoPath : (await inquirer.prompt<{ repoPath: string }>([
-      { type: 'input', name: 'repoPath', message: t('prompts.fill.repoPath'), default: defaults.repoPath }
-    ])).repoPath;
-
-    // Get LLM config (auto-detected or prompt for API key)
-    const llmConfig = await promptLLMConfig(t, { defaultModel: DEFAULT_MODEL, skipIfConfigured: true });
-
-    // Build summary
-    const summary: ConfigSummary = {
-      operation: 'fill',
-      repoPath: resolvedRepo,
-      outputDir: defaults.outputDir,
-      provider: llmConfig.provider,
-      model: llmConfig.model,
-      apiKeySource: llmConfig.autoDetected ? 'env' : llmConfig.apiKey ? 'provided' : 'none',
-      options: {
-        Semantic: true,
-        Languages: defaults.detectedLanguages.join(', '),
-        LSP: false
-      }
-    };
-
-    displayConfigSummary(summary, t);
-    const proceed = await promptConfirmProceed(t);
-
-    if (proceed) {
-      await fillService.run(resolvedRepo, {
-        output: defaults.outputDir,
-        model: llmConfig.model,
-        provider: llmConfig.provider,
-        apiKey: llmConfig.apiKey,
-        verbose: false,
-        semantic: true,
-        languages: defaults.detectedLanguages,
-        useLsp: false
-      });
-    }
+  if (!llmConfig) {
     return;
   }
 
-  // Advanced mode: full configuration
-  const { repoPath } = await inquirer.prompt<{ repoPath: string }>([
-    {
-      type: 'input',
-      name: 'repoPath',
-      message: t('prompts.fill.repoPath'),
-      default: defaults.repoPath
-    }
-  ]);
-
-  const resolvedRepo = path.resolve(repoPath.trim() || '.');
-  const defaultOutput = path.resolve(resolvedRepo, '.context');
-
-  const { outputDir, promptPath: promptPathInput } = await inquirer.prompt<{ outputDir: string; promptPath: string }>([
-    {
-      type: 'input',
-      name: 'outputDir',
-      message: t('commands.fill.options.output'),
-      default: defaultOutput
-    },
-    {
-      type: 'input',
-      name: 'promptPath',
-      message: t('prompts.fill.promptPath'),
-      default: ''
-    }
-  ]);
-
-  const promptPath = promptPathInput.trim() ? path.resolve(promptPathInput.trim()) : undefined;
-
-  const { limit } = await inquirer.prompt<{ limit: string }>([
-    {
-      type: 'input',
-      name: 'limit',
-      message: t('prompts.fill.limit'),
-      filter: (value: string) => value.trim()
-    }
-  ]);
-  const limitValue = limit ? parseInt(limit, 10) : undefined;
-  const parsedLimit = Number.isNaN(limitValue) ? undefined : limitValue;
-
-  // Use shared LLM prompt helper
-  const llmConfig = await promptLLMConfig(t, { defaultModel: DEFAULT_MODEL, skipIfConfigured: false });
-
-  // Use shared analysis options prompt
-  const analysisOptions = await promptAnalysisOptions(t, {
-    languages: defaults.detectedLanguages,
-    useLsp: false
-  });
-
-  // Show summary before execution
+  // Build summary
   const summary: ConfigSummary = {
     operation: 'fill',
     repoPath: resolvedRepo,
-    outputDir,
+    outputDir: defaults.outputDir,
     provider: llmConfig.provider,
     model: llmConfig.model,
     apiKeySource: llmConfig.autoDetected ? 'env' : llmConfig.apiKey ? 'provided' : 'none',
     options: {
-      Semantic: analysisOptions.semantic,
-      Languages: analysisOptions.languages?.join(', ') || 'none',
-      LSP: analysisOptions.useLsp,
-      Verbose: analysisOptions.verbose,
-      ...(parsedLimit ? { Limit: String(parsedLimit) } : {})
+      Semantic: true,
+      Languages: defaults.detectedLanguages.join(', '),
+      LSP: false
     }
   };
 
   displayConfigSummary(summary, t);
-  const proceed = await promptConfirmProceed(t);
 
-  if (proceed) {
-    await fillService.run(resolvedRepo, {
-      output: outputDir,
-      prompt: promptPath,
-      limit: parsedLimit,
-      model: llmConfig.model,
-      provider: llmConfig.provider,
-      apiKey: llmConfig.apiKey,
-      verbose: analysisOptions.verbose,
-      semantic: analysisOptions.semantic,
-      languages: analysisOptions.languages,
-      useLsp: analysisOptions.useLsp
-    });
-  }
+  await fillService.run(resolvedRepo, {
+    output: defaults.outputDir,
+    model: llmConfig.model,
+    provider: llmConfig.provider,
+    apiKey: llmConfig.apiKey,
+    verbose: false,
+    semantic: true,
+    languages: defaults.detectedLanguages,
+    useLsp: false
+  });
 }
 
 function generatePlanSlug(goal: string): string {
@@ -1299,95 +1241,11 @@ async function runInteractivePlan(): Promise<void> {
   const planName = generatePlanSlug(planGoal);
   const planSummary = planGoal;
 
-  const interactiveMode = await promptInteractiveMode(t);
-
-  if (interactiveMode === 'quick') {
-    // Quick mode: choose scaffold or fill with defaults
-    const { action } = await inquirer.prompt<{ action: 'scaffold' | 'fill' }>([
-      {
-        type: 'list',
-        name: 'action',
-        message: t('prompts.plan.mode'),
-        choices: [
-          { name: t('prompts.plan.modeScaffold'), value: 'scaffold' },
-          { name: t('prompts.plan.modeFill'), value: 'fill' }
-        ],
-        default: 'scaffold'
-      }
-    ]);
-
-    if (action === 'scaffold') {
-      // Quick scaffold: just create the template
-      const generator = new PlanGenerator();
-      ui.startSpinner(t('spinner.plan.creating'));
-
-      try {
-        const result = await generator.generatePlan({
-          planName,
-          summary: planSummary,
-          outputDir: defaults.outputDir,
-          verbose: false,
-          semantic: true,
-          projectPath: defaults.repoPath
-        });
-
-        ui.updateSpinner(t('spinner.plan.created'), 'success');
-        ui.displaySuccess(t('success.plan.createdAt', { path: colors.accent(result.relativePath) }));
-      } catch (error) {
-        ui.updateSpinner(t('spinner.plan.creationFailed'), 'fail');
-        ui.displayError(t('errors.plan.creationFailed'), error as Error);
-      } finally {
-        ui.stopSpinner();
-      }
-      return;
-    }
-
-    // Quick fill: use auto-detected LLM config
-    const llmConfig = await promptLLMConfig(t, { defaultModel: DEFAULT_MODEL, skipIfConfigured: true });
-
-    const configSummary: ConfigSummary = {
-      operation: 'plan',
-      repoPath: defaults.repoPath,
-      outputDir: defaults.outputDir,
-      provider: llmConfig.provider,
-      model: llmConfig.model,
-      apiKeySource: llmConfig.autoDetected ? 'env' : llmConfig.apiKey ? 'provided' : 'none',
-      options: {
-        Goal: planSummary,
-        'File': `${planName}.md`,
-        LSP: true,
-        'Dry Run': false
-      }
-    };
-
-    displayConfigSummary(configSummary, t);
-    const proceed = await promptConfirmProceed(t);
-
-    if (proceed) {
-      try {
-        await planService.scaffoldPlanIfNeeded(planName, defaults.outputDir, { summary: planSummary });
-        await planService.fillPlan(planName, {
-          output: defaults.outputDir,
-          repo: defaults.repoPath,
-          dryRun: false,
-          provider: llmConfig.provider,
-          model: llmConfig.model,
-          apiKey: llmConfig.apiKey,
-          lsp: true
-        });
-      } catch (error) {
-        ui.displayError(t('errors.plan.fillFailed'), error as Error);
-      }
-    }
-    return;
-  }
-
-  // Advanced mode: full configuration
-  const defaultOutput = path.resolve(process.cwd(), '.context');
-  const { mode } = await inquirer.prompt<{ mode: 'scaffold' | 'fill' }>([
+  // Choose scaffold or fill with defaults
+  const { action } = await inquirer.prompt<{ action: 'scaffold' | 'fill' }>([
     {
       type: 'list',
-      name: 'mode',
+      name: 'action',
       message: t('prompts.plan.mode'),
       choices: [
         { name: t('prompts.plan.modeScaffold'), value: 'scaffold' },
@@ -1397,109 +1255,69 @@ async function runInteractivePlan(): Promise<void> {
     }
   ]);
 
-  const { outputDir } = await inquirer.prompt<{ outputDir: string }>([
-    {
-      type: 'input',
-      name: 'outputDir',
-      message: t('commands.plan.options.output'),
-      default: defaultOutput
-    }
-  ]);
+  if (action === 'scaffold') {
+    // Scaffold: just create the template
+    const generator = new PlanGenerator();
+    ui.startSpinner(t('spinner.plan.creating'));
 
-  if (mode === 'fill') {
-    const { repoPath } = await inquirer.prompt<{ repoPath: string }>([
-      {
-        type: 'input',
-        name: 'repoPath',
-        message: t('prompts.plan.repoPath'),
-        default: process.cwd()
-      }
-    ]);
+    try {
+      const result = await generator.generatePlan({
+        planName,
+        summary: planSummary,
+        outputDir: defaults.outputDir,
+        verbose: false,
+        semantic: true,
+        projectPath: defaults.repoPath
+      });
 
-    // Use shared LLM prompt helper
-    const llmConfig = await promptLLMConfig(t, { defaultModel: DEFAULT_MODEL, skipIfConfigured: false });
-
-    const { dryRun } = await inquirer.prompt<{ dryRun: boolean }>([
-      {
-        type: 'confirm',
-        name: 'dryRun',
-        message: t('prompts.plan.dryRun'),
-        default: true
-      }
-    ]);
-
-    const { useLsp } = await inquirer.prompt<{ useLsp: boolean }>([
-      {
-        type: 'confirm',
-        name: 'useLsp',
-        message: t('prompts.plan.useLsp'),
-        default: true
-      }
-    ]);
-
-    // Show summary before execution
-    const advancedConfigSummary: ConfigSummary = {
-      operation: 'plan',
-      repoPath,
-      outputDir,
-      provider: llmConfig.provider,
-      model: llmConfig.model,
-      apiKeySource: llmConfig.autoDetected ? 'env' : llmConfig.apiKey ? 'provided' : 'none',
-      options: {
-        Goal: planSummary,
-        'File': `${planName}.md`,
-        LSP: useLsp,
-        'Dry Run': dryRun
-      }
-    };
-
-    displayConfigSummary(advancedConfigSummary, t);
-    const proceed = await promptConfirmProceed(t);
-
-    if (proceed) {
-      try {
-        const resolvedOutput = path.resolve(outputDir.trim() || defaultOutput);
-        await planService.scaffoldPlanIfNeeded(planName, resolvedOutput, {
-          summary: planSummary
-        });
-
-        await planService.fillPlan(planName, {
-          output: resolvedOutput,
-          repo: repoPath,
-          dryRun,
-          provider: llmConfig.provider,
-          model: llmConfig.model,
-          apiKey: llmConfig.apiKey,
-          lsp: useLsp
-        });
-      } catch (error) {
-        ui.displayError(t('errors.plan.fillFailed'), error as Error);
-      }
+      ui.updateSpinner(t('spinner.plan.created'), 'success');
+      ui.displaySuccess(t('success.plan.createdAt', { path: colors.accent(result.relativePath) }));
+    } catch (error) {
+      ui.updateSpinner(t('spinner.plan.creationFailed'), 'fail');
+      ui.displayError(t('errors.plan.creationFailed'), error as Error);
+    } finally {
+      ui.stopSpinner();
     }
     return;
   }
 
-  // Scaffold mode - use planSummary from goal input
-  const generator = new PlanGenerator();
-  ui.startSpinner(t('spinner.plan.creating'));
+  // Fill: use auto-detected LLM config
+  const llmConfig = await promptLLMConfig(t, { defaultModel: DEFAULT_MODEL, skipIfConfigured: true });
+  if (!llmConfig) {
+    return;
+  }
+
+
+  const configSummary: ConfigSummary = {
+    operation: 'plan',
+    repoPath: defaults.repoPath,
+    outputDir: defaults.outputDir,
+    provider: llmConfig.provider,
+    model: llmConfig.model,
+    apiKeySource: llmConfig.autoDetected ? 'env' : llmConfig.apiKey ? 'provided' : 'none',
+    options: {
+      Goal: planSummary,
+      'File': `${planName}.md`,
+      LSP: true,
+      'Dry Run': false
+    }
+  };
+
+  displayConfigSummary(configSummary, t);
 
   try {
-    const result = await generator.generatePlan({
-      planName,
-      outputDir: path.resolve(outputDir.trim() || defaultOutput),
-      summary: planSummary,
-      verbose: false,
-      semantic: true,
-      projectPath: path.resolve(outputDir.trim() || defaultOutput, '..')
+    await planService.scaffoldPlanIfNeeded(planName, defaults.outputDir, { summary: planSummary });
+    await planService.fillPlan(planName, {
+      output: defaults.outputDir,
+      repo: defaults.repoPath,
+      dryRun: false,
+      provider: llmConfig.provider,
+      model: llmConfig.model,
+      apiKey: llmConfig.apiKey,
+      lsp: true
     });
-
-    ui.updateSpinner(t('spinner.plan.created'), 'success');
-    ui.displaySuccess(t('success.plan.createdAt', { path: colors.accent(result.relativePath) }));
   } catch (error) {
-    ui.updateSpinner(t('spinner.plan.creationFailed'), 'fail');
-    ui.displayError(t('errors.plan.creationFailed'), error as Error);
-  } finally {
-    ui.stopSpinner();
+    ui.displayError(t('errors.plan.fillFailed'), error as Error);
   }
 }
 
@@ -1565,21 +1383,18 @@ async function runInteractiveSync(): Promise<void> {
   };
 
   displayConfigSummary(summary, t);
-  const proceed = await promptConfirmProceed(t);
 
-  if (proceed) {
-    try {
-      await syncService.run({
-        source: sourcePath,
-        mode: 'symlink',
-        preset: preset as any,
-        target,
-        force: false,
-        dryRun: false
-      });
-    } catch (error) {
-      ui.displayError(t('errors.sync.failed'), error as Error);
-    }
+  try {
+    await syncService.run({
+      source: sourcePath,
+      mode: 'symlink',
+      preset: preset as any,
+      target,
+      force: false,
+      dryRun: false
+    });
+  } catch (error) {
+    ui.displayError(t('errors.sync.failed'), error as Error);
   }
 }
 
@@ -1960,98 +1775,127 @@ async function runInteractiveSkills(): Promise<void> {
 async function runQuickSync(): Promise<void> {
   const projectPath = process.cwd();
 
-  // Step 1: Select components to sync
-  const { components } = await inquirer.prompt<{ components: string[] }>([
+  // Single prompt: sync all or customize?
+  const { syncMode } = await inquirer.prompt<{ syncMode: string }>([
     {
-      type: 'checkbox',
-      name: 'components',
-      message: t('prompts.quickSync.selectComponents'),
+      type: 'list',
+      name: 'syncMode',
+      message: t('prompts.quickSync.mode'),
       choices: [
-        { name: t('prompts.quickSync.components.agents'), value: 'agents', checked: true },
-        { name: t('prompts.quickSync.components.skills'), value: 'skills', checked: true },
-        { name: t('prompts.quickSync.components.docs'), value: 'docs', checked: true },
+        { name: t('prompts.quickSync.mode.syncAll'), value: 'all' },
+        { name: t('prompts.quickSync.mode.customize'), value: 'customize' },
+        { name: t('prompts.quickSync.mode.cancel'), value: 'cancel' },
       ],
     },
   ]);
 
-  if (components.length === 0) {
-    ui.displayWarning(t('prompts.quickSync.noComponentsSelected'));
-    return;
-  }
+  if (syncMode === 'cancel') return;
 
-  let agentTargets: string[] | undefined;
-  let skillTargets: string[] | undefined;
-  let docTargets: string[] | undefined;
+  let options: QuickSyncOptions;
 
-  // Step 2: If agents selected, choose targets
-  if (components.includes('agents')) {
-    const { targets } = await inquirer.prompt<{ targets: string[] }>([
+  if (syncMode === 'all') {
+    // Sync all with default targets
+    options = {
+      skipAgents: false,
+      skipSkills: false,
+      skipDocs: false,
+      agentTargets: ['claude', 'github'],
+      skillTargets: ['claude', 'gemini', 'codex'],
+      docTargets: ['cursor', 'claude', 'agents'],
+      force: false,
+      dryRun: false,
+      verbose: false,
+    };
+  } else {
+    // Customize: show the existing checkbox prompts
+    const { components } = await inquirer.prompt<{ components: string[] }>([
       {
         type: 'checkbox',
-        name: 'targets',
-        message: t('prompts.quickSync.selectAgentTargets'),
+        name: 'components',
+        message: t('prompts.quickSync.selectComponents'),
         choices: [
-          { name: '.claude/agents (Claude Code)', value: 'claude', checked: true },
-          { name: '.github/agents (GitHub Copilot)', value: 'github', checked: true },
-          { name: '.cursor/agents (Cursor AI)', value: 'cursor', checked: false },
-          { name: '.windsurf/agents (Windsurf/Codeium)', value: 'windsurf', checked: false },
-          { name: '.cline/agents (Cline)', value: 'cline', checked: false },
-          { name: '.continue/agents (Continue.dev)', value: 'continue', checked: false },
+          { name: t('prompts.quickSync.components.agents'), value: 'agents', checked: true },
+          { name: t('prompts.quickSync.components.skills'), value: 'skills', checked: true },
+          { name: t('prompts.quickSync.components.docs'), value: 'docs', checked: true },
         ],
       },
     ]);
-    agentTargets = targets.length > 0 ? targets : undefined;
-  }
 
-  // Step 3: If skills selected, choose targets
-  if (components.includes('skills')) {
-    const { targets } = await inquirer.prompt<{ targets: string[] }>([
-      {
-        type: 'checkbox',
-        name: 'targets',
-        message: t('prompts.quickSync.selectSkillTargets'),
-        choices: [
-          { name: '.claude/skills (Claude Code)', value: 'claude', checked: true },
-          { name: '.gemini/skills (Gemini CLI)', value: 'gemini', checked: true },
-          { name: '.codex/skills (Codex CLI)', value: 'codex', checked: true },
-        ],
-      },
-    ]);
-    skillTargets = targets.length > 0 ? targets : undefined;
-  }
+    if (components.length === 0) {
+      ui.displayWarning(t('prompts.quickSync.noComponentsSelected'));
+      return;
+    }
 
-  // Step 4: If docs selected, choose targets
-  if (components.includes('docs')) {
-    const { targets } = await inquirer.prompt<{ targets: string[] }>([
-      {
-        type: 'checkbox',
-        name: 'targets',
-        message: t('prompts.quickSync.selectDocTargets'),
-        choices: [
-          { name: '.cursorrules (Cursor AI)', value: 'cursor', checked: true },
-          { name: 'CLAUDE.md (Claude Code)', value: 'claude', checked: true },
-          { name: 'AGENTS.md (Universal)', value: 'agents', checked: true },
-          { name: '.windsurfrules (Windsurf)', value: 'windsurf', checked: false },
-          { name: '.clinerules (Cline)', value: 'cline', checked: false },
-          { name: 'CONVENTIONS.md (Aider)', value: 'aider', checked: false },
-        ],
-      },
-    ]);
-    docTargets = targets.length > 0 ? targets : undefined;
-  }
+    let agentTargets: string[] | undefined;
+    let skillTargets: string[] | undefined;
+    let docTargets: string[] | undefined;
 
-  // Build options based on selections
-  const options: QuickSyncOptions = {
-    skipAgents: !components.includes('agents'),
-    skipSkills: !components.includes('skills'),
-    skipDocs: !components.includes('docs'),
-    agentTargets,
-    skillTargets,
-    docTargets,
-    force: false,
-    dryRun: false,
-    verbose: false,
-  };
+    if (components.includes('agents')) {
+      const { targets } = await inquirer.prompt<{ targets: string[] }>([
+        {
+          type: 'checkbox',
+          name: 'targets',
+          message: t('prompts.quickSync.selectAgentTargets'),
+          choices: [
+            { name: '.claude/agents (Claude Code)', value: 'claude', checked: true },
+            { name: '.github/agents (GitHub Copilot)', value: 'github', checked: true },
+            { name: '.cursor/agents (Cursor AI)', value: 'cursor', checked: false },
+            { name: '.windsurf/agents (Windsurf/Codeium)', value: 'windsurf', checked: false },
+            { name: '.cline/agents (Cline)', value: 'cline', checked: false },
+            { name: '.continue/agents (Continue.dev)', value: 'continue', checked: false },
+          ],
+        },
+      ]);
+      agentTargets = targets.length > 0 ? targets : undefined;
+    }
+
+    if (components.includes('skills')) {
+      const { targets } = await inquirer.prompt<{ targets: string[] }>([
+        {
+          type: 'checkbox',
+          name: 'targets',
+          message: t('prompts.quickSync.selectSkillTargets'),
+          choices: [
+            { name: '.claude/skills (Claude Code)', value: 'claude', checked: true },
+            { name: '.gemini/skills (Gemini CLI)', value: 'gemini', checked: true },
+            { name: '.codex/skills (Codex CLI)', value: 'codex', checked: true },
+          ],
+        },
+      ]);
+      skillTargets = targets.length > 0 ? targets : undefined;
+    }
+
+    if (components.includes('docs')) {
+      const { targets } = await inquirer.prompt<{ targets: string[] }>([
+        {
+          type: 'checkbox',
+          name: 'targets',
+          message: t('prompts.quickSync.selectDocTargets'),
+          choices: [
+            { name: '.cursorrules (Cursor AI)', value: 'cursor', checked: true },
+            { name: 'CLAUDE.md (Claude Code)', value: 'claude', checked: true },
+            { name: 'AGENTS.md (Universal)', value: 'agents', checked: true },
+            { name: '.windsurfrules (Windsurf)', value: 'windsurf', checked: false },
+            { name: '.clinerules (Cline)', value: 'cline', checked: false },
+            { name: 'CONVENTIONS.md (Aider)', value: 'aider', checked: false },
+          ],
+        },
+      ]);
+      docTargets = targets.length > 0 ? targets : undefined;
+    }
+
+    options = {
+      skipAgents: !components.includes('agents'),
+      skipSkills: !components.includes('skills'),
+      skipDocs: !components.includes('docs'),
+      agentTargets,
+      skillTargets,
+      docTargets,
+      force: false,
+      dryRun: false,
+      verbose: false,
+    };
+  }
 
   const quickSyncService = new QuickSyncService({
     ui,
@@ -2060,27 +1904,7 @@ async function runQuickSync(): Promise<void> {
     defaultModel: DEFAULT_MODEL,
   });
 
-  const result = await quickSyncService.run(projectPath, options);
-
-  // If docs are outdated, ask if user wants to update
-  if (!result.docsUpdated) {
-    const stats = await quickSyncService.getStats(projectPath);
-    if (stats.daysOld) {
-      const { updateDocs } = await inquirer.prompt<{ updateDocs: boolean }>([
-        {
-          type: 'confirm',
-          name: 'updateDocs',
-          message: t('prompts.quickSync.updateDocs'),
-          default: true,
-        },
-      ]);
-
-      if (updateDocs) {
-        // Trigger fill with AI + LSP
-        await runInteractiveLlmFill();
-      }
-    }
-  }
+  await quickSyncService.run(projectPath, options);
 
   ui.displaySuccess(t('success.quickSync.complete'));
 }
@@ -2381,32 +2205,37 @@ This agent should be invoked when working on tasks related to ${finalRole}.
 // Settings - Submenu for configuration
 // ============================================================================
 
-type SettingsAction = 'language' | 'back';
-
 async function runSettings(): Promise<void> {
-  let continueMenu = true;
-  while (continueMenu) {
-    const { action } = await inquirer.prompt<{ action: SettingsAction }>([
+  // Directly show language selection (the only setting currently)
+  await selectLocale(true);
+}
+
+async function renderStartupSplash(
+  directory: string,
+  titleOverride?: string,
+  modelOverride?: string
+): Promise<void> {
+  const defaults = await detectSmartDefaults(directory);
+
+  console.log('');
+  console.log(renderSplashScreen({
+    title: titleOverride || packageNameToDisplayName(PACKAGE_NAME),
+    version: VERSION,
+    lines: [
       {
-        type: 'list',
-        name: 'action',
-        message: t('prompts.settings.action'),
-        choices: [
-          { name: t('prompts.settings.choice.language'), value: 'language' },
-          { name: t('prompts.settings.choice.back'), value: 'back' },
-        ],
+        label: t('ui.splash.modelLabel'),
+        value: modelOverride || defaults.model || DEFAULT_MODEL,
+        note: defaults.provider && defaults.apiKeyConfigured
+          ? t('ui.splash.modelConfigured', { provider: defaults.provider })
+          : t('ui.splash.modelDefault')
       },
-    ]);
-
-    if (action === 'back') {
-      continueMenu = false;
-      break;
-    }
-
-    if (action === 'language') {
-      await selectLocale(true);
-    }
-  }
+      {
+        label: t('ui.splash.directoryLabel'),
+        value: formatSplashDirectory(directory)
+      }
+    ]
+  }));
+  console.log('');
 }
 
 function filterOutLocaleArgs(args: string[]): string[] {
