@@ -22,9 +22,14 @@ const englishMessages = {
   'ui.generationSummary.title': 'Scaffold Complete',
   'ui.generationSummary.documentation': 'Documentation',
   'ui.generationSummary.agents': 'Agents',
+  'ui.generationSummary.skills': 'Skills',
   'ui.generationSummary.timeElapsed': 'Time',
   'ui.generationSummary.nextStep': 'Next step: customize the generated templates to match your project.',
   'ui.error.title': 'Error',
+  'ui.splash.modelLabel': 'model',
+  'ui.splash.directoryLabel': 'directory',
+  'ui.splash.modelDefault': 'default',
+  'ui.splash.modelConfigured': '{provider} configured',
   'ui.prevc.title': 'PREVC Workflow - Spec-Driven Development for AI Agents',
   'ui.prevc.subtitle': 'A universal 5-step process that improves AI output quality',
   'ui.prevc.specDriven': 'Spec-driven, not autopilot. Define what you want, then let AI execute.',
@@ -42,6 +47,7 @@ const englishMessages = {
   'commands.init.options.include': 'Glob patterns to include during analysis',
   'commands.init.options.verbose': 'Enable verbose logging',
   'commands.init.options.noSemantic': 'Disable semantic code analysis (enabled by default)',
+  'commands.init.options.noContentStubs': 'Disable content stubs (section headings and guidance) in scaffolds',
   'commands.fill.description': 'Use an LLM to fill generated docs and agent playbooks with the latest repo context',
   'commands.fill.arguments.repoPath': 'Path to the repository root used to build context',
   'commands.fill.options.output': 'Scaffold directory containing docs/ and agents/',
@@ -159,6 +165,7 @@ const englishMessages = {
   'steps.init.skills': 'Scaffolding skills',
   'prompts.init.confirmOverwriteDocs': 'Documentation already exists at {path}. Overwrite existing files?',
   'prompts.init.confirmOverwriteAgents': 'Agent playbooks already exist at {path}. Overwrite existing files?',
+  'prompts.init.confirmOverwriteSkills': 'Skills already exist at {path}. Overwrite existing files?',
   'prompts.common.verbose': 'Enable verbose logging?',
   'prompts.fill.repoPath': 'Repository path containing the scaffold',
   'prompts.fill.promptPath': 'Custom prompt path (leave blank to use the bundled default)',
@@ -197,6 +204,7 @@ const englishMessages = {
   'agent.type.playbook': 'Playbook Agent',
   'agent.type.plan': 'Plan Agent',
   'agent.type.fill': 'Fill Agent',
+  'agent.type.skill': 'Skill Agent',
   'commands.sync.description': 'Sync agent playbooks to AI tool directories (.claude, .github, etc.)',
   'commands.sync.options.source': 'Source agents directory',
   'commands.sync.options.target': 'Target directories to sync to',
@@ -208,16 +216,20 @@ const englishMessages = {
   'prompts.main.choice.syncAgents': 'Sync agents to AI tools',
   'prompts.main.choice.create': 'Create documentation for this project',
   'prompts.main.choice.moreOptions': 'More options...',
+  'prompts.main.choice.viewPending': 'View pending files',
   'prompts.main.choice.updateDocs': 'Update documentation',
   'prompts.main.choice.updateDocsBehind': 'Update documentation ({daysBehind} days behind)',
   'prompts.main.choice.rescaffold': 'Re-scaffold (overwrite)',
   'prompts.main.unfilledPrompt': '{count} files need to be filled. What would you like to do?',
+  'prompts.main.pendingFilesHeader': 'Files pending content:',
   'prompts.setup.confirmContinue': 'This will create and fill documentation. Continue?',
   'spinner.setup.creatingStructure': 'Creating documentation structure...',
   'spinner.setup.fillingDocs': 'Filling documentation with AI...',
   'info.setup.incomplete.title': 'Setup incomplete',
   'info.setup.incomplete.detail': 'Run `npx @ai-coders/context fill .` to fill documentation later.',
+  'info.setup.enhanceWithAI': 'Run `ai-context fill .` to enhance documentation with AI.',
   'success.setup.docsCreated': 'Documentation created!',
+  'success.setup.scaffoldCreated': 'Scaffolds created with codebase context!',
   'info.setup.reviewFiles': 'Review the files in .context/ and commit them.',
   'prompts.sync.source': 'Source agents directory',
   'prompts.sync.mode': 'How should references be created?',
@@ -299,8 +311,7 @@ const englishMessages = {
   'prompts.workflow.scale.quick': 'Quick - Bug fixes, tweaks (~5 min)',
   'prompts.workflow.scale.small': 'Small - Simple features (~15 min)',
   'prompts.workflow.scale.medium': 'Medium - Regular features (~30 min)',
-  'prompts.workflow.scale.large': 'Large - Full products (~1 hour)',
-  'prompts.workflow.scale.enterprise': 'Enterprise - Systems with compliance',
+  'prompts.workflow.scale.large': 'Large - Complex systems, compliance (~1+ hours)',
   'prompts.workflow.action': 'Workflow action:',
   'prompts.workflow.action.advance': 'Advance to next phase',
   'prompts.workflow.action.refresh': 'Refresh status',
@@ -323,6 +334,9 @@ const englishMessages = {
   'commands.start.options.template': 'Workflow template: hotfix, feature, mvp, or auto',
   'commands.start.options.skipFill': 'Skip AI-assisted documentation filling',
   'commands.start.options.skipWorkflow': 'Skip workflow initialization',
+  'commands.previewSplash.description': 'Render the interactive splash screen preview',
+  'commands.previewSplash.options.title': 'Override the splash title',
+  'commands.previewSplash.options.directory': 'Directory to display in the splash',
   'spinner.start.detectingStack': 'Detecting technology stack...',
   'spinner.start.stackDetected': 'Stack detected: {stack}',
   'spinner.start.initializing': 'Initializing project context...',
@@ -333,6 +347,33 @@ const englishMessages = {
   'spinner.start.fillFailed': 'Documentation filling skipped (no API key)',
   'errors.start.workflowFailed': 'Failed to start workflow',
   'success.start.complete': 'Project ready! {details}',
+  // MCP Install command translations
+  'commands.mcpInstall.description': 'Install MCP server configuration for AI tools (Claude Code, Cursor, etc.)',
+  'commands.mcpInstall.options.global': 'Install globally in home directory (default)',
+  'commands.mcpInstall.options.local': 'Install locally in project directory',
+  'commands.mcpInstall.options.dryRun': 'Preview changes without writing',
+  'commands.mcpInstall.options.verbose': 'Enable verbose output',
+  'commands.mcpInstall.selectTool': 'Select the tool to configure MCP for:',
+  'commands.mcpInstall.allDetected': 'All detected tools',
+  'labels.detected': 'detected',
+  'info.mcp.wouldInstall': 'Would install MCP for {tool} at {path}',
+  'info.mcp.installed': 'MCP configured for {tool} at {path}',
+  'info.mcp.alreadyConfigured': '{tool} already has MCP configured',
+  'info.mcp.restartTools': 'Restart your AI tools to apply the MCP configuration.',
+  'success.mcp.installed': 'MCP installed for {count} tool(s)',
+  'warnings.mcp.noToolsDetected': 'No supported AI tools detected. Specify a tool manually.',
+  'errors.mcp.unsupportedTool': 'Unsupported tool: {tool}. Supported: {supported}',
+  'errors.mcp.installFailed': 'Failed to install MCP for {tool}',
+  // MCP tool display names
+  'commands.mcpInstall.selectTool.claudeDesktop': 'Claude Desktop',
+  'commands.mcpInstall.selectTool.vscode': 'VS Code (GitHub Copilot)',
+  'commands.mcpInstall.selectTool.roo': 'Roo Code',
+  'commands.mcpInstall.selectTool.warp': 'Warp Terminal',
+  'commands.mcpInstall.selectTool.amazonq': 'Amazon Q Developer CLI',
+  'commands.mcpInstall.selectTool.geminiCli': 'Gemini CLI',
+  'commands.mcpInstall.selectTool.kiro': 'Kiro',
+  'commands.mcpInstall.selectTool.zed': 'Zed Editor',
+  'commands.mcpInstall.selectTool.jetbrains': 'JetBrains IDEs',
   // Export command translations
   'commands.export.description': 'Export rules from .context to AI tool directories',
   'commands.export.options.source': 'Source directory for rules',
@@ -435,14 +476,29 @@ const englishMessages = {
   'prompts.quickSync.docsOutdated': '{days} days old',
   'prompts.quickSync.updateDocs': 'Update docs too?',
   'success.quickSync.complete': 'Sync complete',
+  // Reverse Sync translations
+  'prompts.main.choice.reverseSync': 'Reverse Sync (import from AI tools)',
+  'prompts.reverseSync.detecting': 'Detecting AI tool configurations...',
+  'prompts.reverseSync.detected': 'Detected AI Tools:',
+  'prompts.reverseSync.noFilesFound': 'No AI tool configuration files found',
+  'prompts.reverseSync.noComponentsSelected': 'No components selected for import',
+  'prompts.reverseSync.selectComponents': 'Select components to import:',
+  'prompts.reverseSync.mergeStrategy': 'How should conflicts be handled?',
+  'prompts.reverseSync.strategy.skip': 'Skip existing files',
+  'prompts.reverseSync.strategy.overwrite': 'Overwrite existing files',
+  'prompts.reverseSync.strategy.merge': 'Merge content (append)',
+  'prompts.reverseSync.strategy.rename': 'Rename new files',
+  'success.reverseSync.complete': 'Imported {count} files',
+  'errors.reverseSync.failed': 'Reverse sync failed',
   // Manage submenus
   'prompts.main.choice.manageSkills': 'Manage Skills',
   'prompts.main.choice.manageAgents': 'Manage Agents',
-  'prompts.main.choice.settings': 'Settings',
+  'prompts.main.choice.settings': 'Settings (language)',
+  'prompts.main.choice.mcpInstall': 'Install/Configure MCP',
   'prompts.main.choice.startWorkflow': 'Start Workflow',
   'prompts.main.choice.createPlan': 'Create Plan',
-  'prompts.main.choice.scaffoldOnly': 'Scaffold only (no AI fill)',
-  'prompts.main.choice.quickSetup': 'Quick Setup (init + fill with AI)',
+  'prompts.main.choice.quickSetup': 'Quick Setup (creates context from codebase)',
+  'prompts.main.choice.enhanceWithAI': 'Enhance context with AI',
   // Agents submenu
   'prompts.agents.action': 'Agents:',
   'prompts.agents.choice.sync': 'Sync to targets',
@@ -460,13 +516,43 @@ const englishMessages = {
   'prompts.settings.action': 'Settings:',
   'prompts.settings.choice.language': 'Change language',
   'prompts.settings.choice.back': 'Back',
+  // Mode selection (interactive entry)
+  'prompts.modeSelect.select': 'How would you like to use @ai-coders/context?',
+  'prompts.modeSelect.choice.mcp': 'Set up MCP for my AI tool (recommended — no API key needed)',
+  'prompts.modeSelect.choice.cli': 'Use the interactive CLI (requires API key from a provider)',
+  'prompts.modeSelect.choice.exit': 'Exit',
+  // More options submenu
+  'prompts.more.action': 'More options:',
+  'prompts.more.choice.back': 'Back',
+  // Quick Sync mode
+  'prompts.quickSync.mode': 'Sync all (agents, skills, docs) to common targets?',
+  'prompts.quickSync.mode.syncAll': 'Yes, sync all',
+  'prompts.quickSync.mode.customize': 'Customize targets...',
+  'prompts.quickSync.mode.cancel': 'Cancel',
   // Compact status
-  'status.compact': 'Docs: {docs} | Agents: {agents} synced | Skills: {skills} active',
-  'status.outdated': 'Docs: {docs} ({days}d old) | Agents: {agents} | Skills: {skills}',
-  'status.new': 'No context found.',
-  'status.unfilled': 'Context: {count} files need filling',
+  'status.compact': '✓ Context ready ({docs} docs, {agents} agents, {skills} skills)',
+  'status.outdated': '⚠ Context outdated ({days} days) - run Update Docs',
+  'status.new': 'No context found',
+  'status.unfilled': 'Context scaffolded, {count} files need content',
+  'status.detected.project': 'Detected: {languages} project',
+  'status.detected.provider': '{provider} provider configured',
   // Hit Enter / Press Enter
-  'prompts.pressEnter': 'Press Enter to continue...'
+  'prompts.pressEnter': 'Press Enter to continue...',
+  // Environment variable loading
+  'prompts.env.loadEnv': 'Load environment variables from .env file?',
+  // Config summary labels
+  'configSummary.config': 'Config:',
+  'configSummary.options': 'Options:',
+  'configSummary.repo': 'repo',
+  'configSummary.provider': 'provider',
+  'configSummary.yes': 'Yes',
+  'configSummary.no': 'No',
+  // API key validation
+  'warnings.apiKey.empty': 'API key is empty. LLM calls will likely fail.',
+  'warnings.apiKey.formatMismatch': 'API key does not start with expected prefix "{prefix}" for {provider}. It may still work if correct.',
+  // Back/cancel options
+  'prompts.analysis.back': 'Back (cancel analysis options)',
+  'prompts.llm.back': 'Back (cancel LLM configuration)'
 } as const;
 
 export type TranslationKey = keyof typeof englishMessages;
@@ -492,9 +578,14 @@ const portugueseMessages: TranslationDictionary = {
   'ui.generationSummary.title': 'Scaffold Concluído',
   'ui.generationSummary.documentation': 'Documentação',
   'ui.generationSummary.agents': 'Agentes',
+  'ui.generationSummary.skills': 'Skills',
   'ui.generationSummary.timeElapsed': 'Tempo',
   'ui.generationSummary.nextStep': 'Próximo passo: personalize os templates gerados para o seu projeto.',
   'ui.error.title': 'Erro',
+  'ui.splash.modelLabel': 'modelo',
+  'ui.splash.directoryLabel': 'diretorio',
+  'ui.splash.modelDefault': 'padrao',
+  'ui.splash.modelConfigured': '{provider} configurado',
   'ui.prevc.title': 'PREVC Workflow - Desenvolvimento Orientado a Specs para Agentes IA',
   'ui.prevc.subtitle': 'Um processo universal de 5 etapas que melhora a qualidade do output da IA',
   'ui.prevc.specDriven': 'Orientado a specs, não em piloto automático. Defina o que você quer, depois deixe a IA executar.',
@@ -512,6 +603,7 @@ const portugueseMessages: TranslationDictionary = {
   'commands.init.options.include': 'Padrões glob para incluir durante a análise',
   'commands.init.options.verbose': 'Ativa logs detalhados',
   'commands.init.options.noSemantic': 'Desativa análise semântica de código (ativada por padrão)',
+  'commands.init.options.noContentStubs': 'Desativa stubs de conteúdo (cabeçalhos e orientações) nos scaffolds',
   'commands.fill.description': 'Usar um assistente de IA para preencher docs e agents com o contexto mais recente do repositório',
   'commands.fill.arguments.repoPath': 'Caminho da raiz do repositório usado para montar o contexto',
   'commands.fill.options.output': 'Diretório com docs/ e agents/ gerados pela base',
@@ -629,6 +721,7 @@ const portugueseMessages: TranslationDictionary = {
   'steps.init.skills': 'Gerando skills',
   'prompts.init.confirmOverwriteDocs': 'A documentação já existe em {path}. Deseja sobrescrever os arquivos atuais?',
   'prompts.init.confirmOverwriteAgents': 'Os playbooks de agentes já existem em {path}. Deseja sobrescrever os arquivos atuais?',
+  'prompts.init.confirmOverwriteSkills': 'Os skills já existem em {path}. Deseja sobrescrever os arquivos atuais?',
   'prompts.common.verbose': 'Ativar logs detalhados?',
   'prompts.fill.repoPath': 'Caminho do repositório que contém a base',
   'prompts.fill.promptPath': 'Caminho do prompt personalizado (deixe em branco para usar o padrão incluso)',
@@ -667,6 +760,7 @@ const portugueseMessages: TranslationDictionary = {
   'agent.type.playbook': 'Agente de Playbook',
   'agent.type.plan': 'Agente de Plano',
   'agent.type.fill': 'Agente de Preenchimento',
+  'agent.type.skill': 'Agente de Skill',
   'commands.sync.description': 'Sincronizar playbooks de agentes com diretórios de ferramentas IA (.claude, .github, etc.)',
   'commands.sync.options.source': 'Diretório de origem dos agentes',
   'commands.sync.options.target': 'Diretórios de destino para sincronizar',
@@ -678,16 +772,20 @@ const portugueseMessages: TranslationDictionary = {
   'prompts.main.choice.syncAgents': 'Sincronizar agentes com ferramentas IA',
   'prompts.main.choice.create': 'Criar documentação para este projeto',
   'prompts.main.choice.moreOptions': 'Mais opções...',
+  'prompts.main.choice.viewPending': 'Ver arquivos pendentes',
   'prompts.main.choice.updateDocs': 'Atualizar documentação',
   'prompts.main.choice.updateDocsBehind': 'Atualizar documentação ({daysBehind} dias atrás)',
   'prompts.main.choice.rescaffold': 'Refazer scaffold (sobrescrever)',
   'prompts.main.unfilledPrompt': '{count} arquivos precisam ser preenchidos. O que você gostaria de fazer?',
+  'prompts.main.pendingFilesHeader': 'Arquivos pendentes de conteúdo:',
   'prompts.setup.confirmContinue': 'Isso criará e preencherá a documentação. Continuar?',
   'spinner.setup.creatingStructure': 'Criando estrutura de documentação...',
   'spinner.setup.fillingDocs': 'Preenchendo documentação com IA...',
   'info.setup.incomplete.title': 'Configuração incompleta',
   'info.setup.incomplete.detail': 'Execute `npx @ai-coders/context fill .` para preencher a documentação depois.',
+  'info.setup.enhanceWithAI': 'Execute `ai-context fill .` para aprimorar a documentação com IA.',
   'success.setup.docsCreated': 'Documentação criada!',
+  'success.setup.scaffoldCreated': 'Scaffolds criados com contexto do codebase!',
   'info.setup.reviewFiles': 'Revise os arquivos em .context/ e faça commit.',
   'prompts.sync.source': 'Diretório de origem dos agentes',
   'prompts.sync.mode': 'Como as referências devem ser criadas?',
@@ -769,8 +867,7 @@ const portugueseMessages: TranslationDictionary = {
   'prompts.workflow.scale.quick': 'Rápido - Bug fixes, ajustes (~5 min)',
   'prompts.workflow.scale.small': 'Pequeno - Features simples (~15 min)',
   'prompts.workflow.scale.medium': 'Médio - Features regulares (~30 min)',
-  'prompts.workflow.scale.large': 'Grande - Produtos completos (~1 hora)',
-  'prompts.workflow.scale.enterprise': 'Enterprise - Sistemas com compliance',
+  'prompts.workflow.scale.large': 'Grande - Sistemas complexos, compliance (~1+ hora)',
   'prompts.workflow.action': 'Ação do workflow:',
   'prompts.workflow.action.advance': 'Avançar para próxima fase',
   'prompts.workflow.action.refresh': 'Atualizar status',
@@ -793,6 +890,9 @@ const portugueseMessages: TranslationDictionary = {
   'commands.start.options.template': 'Template de workflow: hotfix, feature, mvp ou auto',
   'commands.start.options.skipFill': 'Pular preenchimento de documentação com IA',
   'commands.start.options.skipWorkflow': 'Pular inicialização do workflow',
+  'commands.previewSplash.description': 'Renderizar uma previa da splash screen interativa',
+  'commands.previewSplash.options.title': 'Sobrescrever o titulo da splash',
+  'commands.previewSplash.options.directory': 'Diretorio exibido na splash',
   'spinner.start.detectingStack': 'Detectando stack de tecnologia...',
   'spinner.start.stackDetected': 'Stack detectada: {stack}',
   'spinner.start.initializing': 'Inicializando contexto do projeto...',
@@ -803,6 +903,33 @@ const portugueseMessages: TranslationDictionary = {
   'spinner.start.fillFailed': 'Preenchimento de documentação pulado (sem chave de API)',
   'errors.start.workflowFailed': 'Falha ao iniciar workflow',
   'success.start.complete': 'Projeto pronto! {details}',
+  // Traduções do comando mcp:install
+  'commands.mcpInstall.description': 'Instalar configuração do servidor MCP para ferramentas de IA (Claude Code, Cursor, etc.)',
+  'commands.mcpInstall.options.global': 'Instalar globalmente no diretório home (padrão)',
+  'commands.mcpInstall.options.local': 'Instalar localmente no diretório do projeto',
+  'commands.mcpInstall.options.dryRun': 'Visualizar mudanças sem escrever',
+  'commands.mcpInstall.options.verbose': 'Habilitar saída detalhada',
+  'commands.mcpInstall.selectTool': 'Selecione a ferramenta para configurar o MCP:',
+  'commands.mcpInstall.allDetected': 'Todas as ferramentas detectadas',
+  'labels.detected': 'detectado',
+  'info.mcp.wouldInstall': 'Instalaria MCP para {tool} em {path}',
+  'info.mcp.installed': 'MCP configurado para {tool} em {path}',
+  'info.mcp.alreadyConfigured': '{tool} já tem MCP configurado',
+  'info.mcp.restartTools': 'Reinicie suas ferramentas de IA para aplicar a configuração do MCP.',
+  'success.mcp.installed': 'MCP instalado para {count} ferramenta(s)',
+  'warnings.mcp.noToolsDetected': 'Nenhuma ferramenta de IA suportada detectada. Especifique uma ferramenta manualmente.',
+  'errors.mcp.unsupportedTool': 'Ferramenta não suportada: {tool}. Suportadas: {supported}',
+  'errors.mcp.installFailed': 'Falha ao instalar MCP para {tool}',
+  // Nomes de exibição das ferramentas MCP
+  'commands.mcpInstall.selectTool.claudeDesktop': 'Claude Desktop',
+  'commands.mcpInstall.selectTool.vscode': 'VS Code (GitHub Copilot)',
+  'commands.mcpInstall.selectTool.roo': 'Roo Code',
+  'commands.mcpInstall.selectTool.warp': 'Warp Terminal',
+  'commands.mcpInstall.selectTool.amazonq': 'Amazon Q Developer CLI',
+  'commands.mcpInstall.selectTool.geminiCli': 'Gemini CLI',
+  'commands.mcpInstall.selectTool.kiro': 'Kiro',
+  'commands.mcpInstall.selectTool.zed': 'Zed Editor',
+  'commands.mcpInstall.selectTool.jetbrains': 'JetBrains IDEs',
   // Traduções do comando export
   'commands.export.description': 'Exportar regras de .context para diretórios de ferramentas IA',
   'commands.export.options.source': 'Diretório fonte das regras',
@@ -905,14 +1032,29 @@ const portugueseMessages: TranslationDictionary = {
   'prompts.quickSync.docsOutdated': '{days} dias atrás',
   'prompts.quickSync.updateDocs': 'Atualizar docs também?',
   'success.quickSync.complete': 'Sincronização completa',
+  // Reverse Sync translations
+  'prompts.main.choice.reverseSync': 'Reverse Sync (importar de ferramentas IA)',
+  'prompts.reverseSync.detecting': 'Detectando configurações de ferramentas IA...',
+  'prompts.reverseSync.detected': 'Ferramentas IA Detectadas:',
+  'prompts.reverseSync.noFilesFound': 'Nenhum arquivo de configuração de ferramentas IA encontrado',
+  'prompts.reverseSync.noComponentsSelected': 'Nenhum componente selecionado para importação',
+  'prompts.reverseSync.selectComponents': 'Selecione os componentes para importar:',
+  'prompts.reverseSync.mergeStrategy': 'Como devemos lidar com conflitos?',
+  'prompts.reverseSync.strategy.skip': 'Pular arquivos existentes',
+  'prompts.reverseSync.strategy.overwrite': 'Sobrescrever arquivos existentes',
+  'prompts.reverseSync.strategy.merge': 'Mesclar conteúdo (anexar)',
+  'prompts.reverseSync.strategy.rename': 'Renomear novos arquivos',
+  'success.reverseSync.complete': '{count} arquivos importados',
+  'errors.reverseSync.failed': 'Reverse sync falhou',
   // Manage submenus
   'prompts.main.choice.manageSkills': 'Gerenciar Skills',
   'prompts.main.choice.manageAgents': 'Gerenciar Agents',
-  'prompts.main.choice.settings': 'Configurações',
+  'prompts.main.choice.settings': 'Configurações (idioma)',
+  'prompts.main.choice.mcpInstall': 'Instalar/Configurar MCP',
   'prompts.main.choice.startWorkflow': 'Iniciar Workflow',
   'prompts.main.choice.createPlan': 'Criar Plano',
-  'prompts.main.choice.scaffoldOnly': 'Apenas scaffold (sem IA)',
-  'prompts.main.choice.quickSetup': 'Setup Rápido (init + fill com IA)',
+  'prompts.main.choice.quickSetup': 'Setup Rápido (cria contexto do codebase)',
+  'prompts.main.choice.enhanceWithAI': 'Aprimorar contexto com IA',
   // Agents submenu
   'prompts.agents.action': 'Agents:',
   'prompts.agents.choice.sync': 'Sincronizar para targets',
@@ -930,13 +1072,43 @@ const portugueseMessages: TranslationDictionary = {
   'prompts.settings.action': 'Configurações:',
   'prompts.settings.choice.language': 'Mudar idioma',
   'prompts.settings.choice.back': 'Voltar',
+  // Mode selection (interactive entry)
+  'prompts.modeSelect.select': 'Como você gostaria de usar o @ai-coders/context?',
+  'prompts.modeSelect.choice.mcp': 'Configurar MCP para minha ferramenta de IA (recomendado — sem API key)',
+  'prompts.modeSelect.choice.cli': 'Usar a CLI interativa (requer API key de um provedor)',
+  'prompts.modeSelect.choice.exit': 'Sair',
+  // More options submenu
+  'prompts.more.action': 'Mais opções:',
+  'prompts.more.choice.back': 'Voltar',
+  // Quick Sync mode
+  'prompts.quickSync.mode': 'Sincronizar tudo (agents, skills, docs) para destinos comuns?',
+  'prompts.quickSync.mode.syncAll': 'Sim, sincronizar tudo',
+  'prompts.quickSync.mode.customize': 'Personalizar destinos...',
+  'prompts.quickSync.mode.cancel': 'Cancelar',
   // Compact status
-  'status.compact': 'Docs: {docs} | Agents: {agents} synced | Skills: {skills} ativos',
-  'status.outdated': 'Docs: {docs} ({days}d atrás) | Agents: {agents} | Skills: {skills}',
-  'status.new': 'Nenhum contexto encontrado.',
-  'status.unfilled': 'Contexto: {count} arquivos precisam preenchimento',
+  'status.compact': '✓ Contexto pronto ({docs} docs, {agents} agents, {skills} skills)',
+  'status.outdated': '⚠ Contexto desatualizado ({days} dias) - execute Atualizar Docs',
+  'status.new': 'Nenhum contexto encontrado',
+  'status.unfilled': 'Contexto scaffolded, {count} arquivos precisam de conteúdo',
+  'status.detected.project': 'Detectado: projeto {languages}',
+  'status.detected.provider': 'provedor {provider} configurado',
   // Hit Enter / Press Enter
-  'prompts.pressEnter': 'Pressione Enter para continuar...'
+  'prompts.pressEnter': 'Pressione Enter para continuar...',
+  // Environment variable loading
+  'prompts.env.loadEnv': 'Carregar variáveis de ambiente do arquivo .env?',
+  // Config summary labels
+  'configSummary.config': 'Configuração:',
+  'configSummary.options': 'Opções:',
+  'configSummary.repo': 'repo',
+  'configSummary.provider': 'provedor',
+  'configSummary.yes': 'Sim',
+  'configSummary.no': 'Não',
+  // API key validation
+  'warnings.apiKey.empty': 'A chave de API está vazia. Chamadas ao LLM provavelmente falharão.',
+  'warnings.apiKey.formatMismatch': 'A chave de API não começa com o prefixo esperado "{prefix}" para {provider}. Pode funcionar se estiver correta.',
+  // Back/cancel options
+  'prompts.analysis.back': 'Voltar (cancelar opções de análise)',
+  'prompts.llm.back': 'Voltar (cancelar configuração do LLM)'
 };
 
 const dictionaries: Record<Locale, TranslationDictionary> = {
@@ -959,17 +1131,27 @@ export function createTranslator(locale: Locale): TranslateFn {
 }
 
 export function normalizeLocale(locale: string): Locale {
-  return SUPPORTED_LOCALES.find(candidate => candidate.toLowerCase() === locale.toLowerCase()) || DEFAULT_LOCALE;
+  return resolveLocaleCandidate(locale) || DEFAULT_LOCALE;
 }
 
-export function detectLocale(argv: string[], envLocale?: string | null): Locale {
-  const candidateFromArgs = extractLocaleFromArgs(argv);
-  if (candidateFromArgs) {
-    return normalizeLocale(candidateFromArgs);
+export function detectLocale(
+  argv: string[],
+  envLocale?: string | null,
+  systemLocaleCandidates: Array<string | null | undefined> = []
+): Locale {
+  const candidates = [
+    extractLocaleFromArgs(argv),
+    envLocale,
+    ...systemLocaleCandidates
+  ];
+
+  for (const candidate of candidates) {
+    const resolved = resolveLocaleCandidate(candidate);
+    if (resolved) {
+      return resolved;
+    }
   }
-  if (envLocale) {
-    return normalizeLocale(envLocale);
-  }
+
   return DEFAULT_LOCALE;
 }
 
@@ -1001,4 +1183,35 @@ function fillTemplate(template: string, params?: TranslateParams): string {
 
 export function isSupportedLocale(locale: string): boolean {
   return SUPPORTED_LOCALES.some(candidate => candidate.toLowerCase() === locale.toLowerCase());
+}
+
+function resolveLocaleCandidate(locale?: string | null): Locale | undefined {
+  if (!locale) {
+    return undefined;
+  }
+
+  const trimmed = locale.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const directMatch = SUPPORTED_LOCALES.find(candidate => candidate.toLowerCase() === trimmed.toLowerCase());
+  if (directMatch) {
+    return directMatch;
+  }
+
+  const normalized = trimmed.replace(/_/g, '-').split('.')[0].toLowerCase();
+  if (normalized === 'c' || normalized === 'posix') {
+    return undefined;
+  }
+
+  if (normalized === 'pt' || normalized.startsWith('pt-')) {
+    return 'pt-BR';
+  }
+
+  if (normalized === 'en' || normalized.startsWith('en-')) {
+    return 'en';
+  }
+
+  return undefined;
 }

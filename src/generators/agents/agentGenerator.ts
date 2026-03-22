@@ -2,10 +2,19 @@ import * as path from 'path';
 import { RepoStructure } from '../../types';
 import { GeneratorUtils } from '../shared';
 import { AGENT_TYPES, AgentType } from './agentTypes';
-import { renderAgentPlaybook, renderAgentIndex } from './templates';
+import { renderAgentIndex } from './templates';
 import { DOCUMENT_GUIDES } from '../documentation/guideRegistry';
 import { CodebaseAnalyzer, SemanticContext, ExtractedSymbol } from '../../services/semantic';
 import { KeySymbolInfo } from './templates/types';
+import { AGENT_RESPONSIBILITIES } from './agentConfig';
+import {
+  createAgentFrontmatter,
+  serializeFrontmatter,
+} from '../../types/scaffoldFrontmatter';
+import { PrevcPhase } from '../../workflow/types';
+import { getScaffoldStructure, serializeStructureAsMarkdown } from '../shared/scaffoldStructures';
+import { AutoFillService, AutoFillContext } from '../../services/autoFill';
+import { StackDetector, StackInfo } from '../../services/stack';
 
 interface AgentContext {
   topLevelDirectories: string[];
@@ -17,6 +26,40 @@ interface AgentGenerationConfig {
   semantic?: boolean;
   /** Filtered list of agents based on project type classification */
   filteredAgents?: AgentType[];
+  /** Include section headings and guidance in scaffolds (CLI mode) */
+  includeContentStubs?: boolean;
+  /** Fill scaffolds with semantic data (no LLM required) */
+  autoFill?: boolean;
+}
+
+/**
+ * Agent to PREVC phase mapping
+ */
+const AGENT_PHASES: Record<AgentType, PrevcPhase[]> = {
+  'code-reviewer': ['R', 'V'],
+  'bug-fixer': ['E', 'V'],
+  'feature-developer': ['P', 'E'],
+  'refactoring-specialist': ['E'],
+  'test-writer': ['E', 'V'],
+  'documentation-writer': ['P', 'C'],
+  'performance-optimizer': ['E', 'V'],
+  'security-auditor': ['R', 'V'],
+  'backend-specialist': ['P', 'E'],
+  'frontend-specialist': ['P', 'E'],
+  'architect-specialist': ['P', 'R'],
+  'devops-specialist': ['E', 'C'],
+  'database-specialist': ['P', 'E'],
+  'mobile-specialist': ['P', 'E'],
+};
+
+/**
+ * Format agent type as display title
+ */
+function formatAgentTitle(agentType: AgentType): string {
+  return agentType
+    .split('-')
+    .map(segment => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ');
 }
 
 export class AgentGenerator {
@@ -65,6 +108,17 @@ export class AgentGenerator {
       }
     }
 
+    // Detect stack info for autoFill
+    let stackInfo: StackInfo | undefined;
+    if (normalizedConfig.autoFill) {
+      try {
+        const stackDetector = new StackDetector();
+        stackInfo = await stackDetector.detect(repoStructure.rootPath);
+      } catch (error) {
+        GeneratorUtils.logError('Stack detection failed, continuing without it', error, verbose);
+      }
+    }
+
     const context = this.buildContext(repoStructure, semantics);
     const agentTypes = this.resolveAgentSelection(
       normalizedConfig.selectedAgents,
@@ -72,21 +126,47 @@ export class AgentGenerator {
     );
 
     let created = 0;
+
+    // Generate frontmatter-only files for each agent (scaffold v2)
     for (const agentType of agentTypes) {
-      const relevantSymbols = this.getRelevantSymbolsForAgent(agentType, semantics);
-      const content = renderAgentPlaybook(
+      const title = formatAgentTitle(agentType);
+      const responsibilities = AGENT_RESPONSIBILITIES[agentType] || [];
+      const description = responsibilities[0] || `${title} agent playbook`;
+      const phases = AGENT_PHASES[agentType];
+
+      const frontmatter = createAgentFrontmatter(
+        title,
+        description,
         agentType,
-        context.topLevelDirectories,
-        this.docTouchpoints,
-        semantics,
-        relevantSymbols,
-        repoStructure.rootPath
+        phases
       );
+      let content = serializeFrontmatter(frontmatter) + '\n';
+
+      // Add content based on mode
+      const structure = getScaffoldStructure(agentType);
+      if (structure) {
+        if (normalizedConfig.autoFill && semantics) {
+          // AutoFill: generate content from semantic analysis (no LLM needed)
+          const autoFillService = new AutoFillService();
+          const autoFillContext: AutoFillContext = {
+            semantics,
+            stackInfo,
+            repoPath: repoStructure.rootPath,
+            topLevelDirectories: context.topLevelDirectories
+          };
+          content += autoFillService.fillAgent(agentType, structure, autoFillContext);
+        } else if (normalizedConfig.includeContentStubs) {
+          // Content stubs: section headings with guidance comments
+          content += serializeStructureAsMarkdown(structure);
+        }
+      }
+
       const filePath = path.join(agentsDir, `${agentType}.md`);
       await GeneratorUtils.writeFileWithLogging(filePath, content, verbose, `Created ${agentType}.md`);
       created += 1;
     }
 
+    // Generate README.md index
     const indexPath = path.join(agentsDir, 'README.md');
     const indexContent = renderAgentIndex(agentTypes);
     await GeneratorUtils.writeFileWithLogging(indexPath, indexContent, verbose, 'Created README.md');

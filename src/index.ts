@@ -5,7 +5,13 @@ import * as path from 'path';
 import * as dotenv from 'dotenv';
 import inquirer from 'inquirer';
 
-import { colors } from './utils/theme';
+import { colors, typography } from './utils/theme';
+import {
+  formatSplashDirectory,
+  packageNameToDisplayName,
+  renderSplashScreen
+} from './utils/splashScreen';
+import { themedSelect, themedConfirm, Separator } from './utils/themedPrompt';
 import { PlanGenerator } from './generators/plans/planGenerator';
 import { CLIInterface } from './utils/cliUI';
 import { checkForUpdates } from './utils/versionChecker';
@@ -18,7 +24,7 @@ import { PlanService } from './services/plan/planService';
 import { SyncService } from './services/sync/syncService';
 import { ImportRulesService, ImportAgentsService } from './services/import';
 import { ServeService } from './services/serve';
-import { startMCPServer } from './services/mcp';
+import { startMCPServer, MCPInstallService } from './services/mcp';
 import { StateDetector } from './services/state';
 import { UpdateService } from './services/update';
 import { WorkflowService, WorkflowServiceDependencies } from './services/workflow';
@@ -27,6 +33,7 @@ import { ExportRulesService, EXPORT_PRESETS } from './services/export';
 import { ReportService } from './services/report';
 import { StackDetector } from './services/stack';
 import { QuickSyncService, QuickSyncOptions } from './services/quickSync';
+import { ReverseQuickSyncService, type MergeStrategy } from './services/reverseSync';
 import { AutoAdvanceDetector } from './services/workflow/autoAdvance';
 import { getScaleName, PHASE_NAMES_PT, PHASE_NAMES_EN, ROLE_DISPLAY_NAMES, ROLE_DISPLAY_NAMES_EN, type PrevcRole, ProjectScale } from './workflow';
 import { DEFAULT_MODELS, getApiKeyFromEnv } from './services/ai/providerFactory';
@@ -36,6 +43,7 @@ import {
   promptLLMConfig,
   promptAnalysisOptions,
   promptConfirmProceed,
+  promptLoadEnv,
   displayConfigSummary,
   type ConfigSummary
 } from './utils/prompts';
@@ -43,11 +51,26 @@ import { VERSION, PACKAGE_NAME } from './version';
 
 const rawArgs = process.argv.slice(2);
 const isMcpCommand = rawArgs.includes('mcp');
-if (!isMcpCommand) {
-  dotenv.config();
+
+// Determine if we're in interactive mode (no command args, only flags like --lang)
+const isInteractiveMode = rawArgs.every(arg =>
+  arg.startsWith('-') ||
+  rawArgs[rawArgs.indexOf(arg) - 1]?.startsWith('--lang') ||
+  rawArgs[rawArgs.indexOf(arg) - 1]?.startsWith('--language') ||
+  rawArgs[rawArgs.indexOf(arg) - 1]?.startsWith('-l')
+);
+
+// Load dotenv immediately for command-line mode (not MCP, not interactive)
+// For interactive mode, we'll ask the user first
+if (!isMcpCommand && !isInteractiveMode) {
+  dotenv.config({ quiet: true });
 }
 
-const initialLocale = detectLocale(rawArgs, process.env.AI_CONTEXT_LANG);
+const initialLocale = detectLocale(rawArgs, process.env.AI_CONTEXT_LANG, [
+  process.env.LC_ALL,
+  process.env.LC_MESSAGES,
+  process.env.LANG
+]);
 let currentLocale: Locale = initialLocale;
 let translateFn = createTranslator(initialLocale);
 const t: TranslateFn = (key, params) => translateFn(key, params);
@@ -59,7 +82,7 @@ const localeLabelKeys: Record<Locale, TranslationKey> = {
 
 const program = new Command();
 const ui = new CLIInterface(t);
-const DEFAULT_MODEL = 'gemini-3-flash-preview';	
+const DEFAULT_MODEL = 'gemini-3-flash-preview';
 
 const initService = new InitService({
   ui,
@@ -121,7 +144,7 @@ function scheduleVersionCheck(force: boolean = false): Promise<void> {
       ui,
       t,
       force
-    }).catch(() => {});
+    }).catch(() => { });
   }
 
   return versionCheckPromise;
@@ -141,6 +164,7 @@ program
   .option('--include <patterns...>', t('commands.init.options.include'))
   .option('-v, --verbose', t('commands.init.options.verbose'))
   .option('--no-semantic', t('commands.init.options.noSemantic'))
+  .option('--no-content-stubs', t('commands.init.options.noContentStubs'))
   .action(async (repoPath: string, type: string, options: any) => {
     try {
       await initService.run(repoPath, type, options);
@@ -385,6 +409,39 @@ program
   });
 
 program
+  .command('reverse-sync')
+  .description('Import rules, agents, and skills from AI tool directories into .context/')
+  .argument('[repo-path]', 'Repository path to scan', process.cwd())
+  .option('--dry-run', 'Preview changes without importing')
+  .option('-f, --force', 'Overwrite existing files')
+  .option('--skip-agents', 'Skip importing agents')
+  .option('--skip-skills', 'Skip importing skills')
+  .option('--skip-rules', 'Skip importing rules')
+  .option('--merge-strategy <strategy>', 'How to handle conflicts: skip|overwrite|merge|rename', 'skip')
+  .option('--format <format>', 'Output format for rules: markdown|raw|formatted', 'formatted')
+  .option('--no-metadata', 'Do not add import metadata to files')
+  .option('-v, --verbose', 'Verbose output')
+  .action(async (repoPath: string, options: any) => {
+    try {
+      const service = new ReverseQuickSyncService({ ui, t, version: VERSION });
+      await service.run(repoPath, {
+        dryRun: options.dryRun,
+        force: options.force,
+        skipAgents: options.skipAgents,
+        skipSkills: options.skipSkills,
+        skipRules: options.skipRules,
+        mergeStrategy: options.mergeStrategy as MergeStrategy,
+        format: options.format,
+        metadata: options.metadata !== false,
+        verbose: options.verbose,
+      });
+    } catch (error) {
+      ui.displayError(t('errors.reverseSync.failed'), error as Error);
+      process.exit(1);
+    }
+  });
+
+program
   .command('serve')
   .description('Start passthrough server for external AI agents (stdin/stdout JSON)')
   .option('-r, --repo-path <path>', 'Default repository path for tools')
@@ -437,6 +494,64 @@ program
     }
   });
 
+// MCP Install Command
+program
+  .command('mcp:install [tool]')
+  .description(t('commands.mcpInstall.description'))
+  .option('-g, --global', t('commands.mcpInstall.options.global'), true)
+  .option('-l, --local', t('commands.mcpInstall.options.local'))
+  .option('--dry-run', t('commands.mcpInstall.options.dryRun'))
+  .option('-v, --verbose', t('commands.mcpInstall.options.verbose'))
+  .action(async (tool: string | undefined, options: any) => {
+    try {
+      const mcpInstallService = new MCPInstallService({ ui, t, version: VERSION });
+
+      // If no tool specified and not in CI, show interactive prompt
+      if (!tool && process.stdin.isTTY) {
+        const supportedTools = mcpInstallService.getSupportedTools();
+        const detectedTools = await mcpInstallService.detectInstalledTools();
+
+        const choices = supportedTools.map(tool => ({
+          name: detectedTools.includes(tool.id)
+            ? `${tool.displayName} (${t('labels.detected')})`
+            : tool.displayName,
+          value: tool.id,
+        }));
+
+        choices.unshift({
+          name: t('commands.mcpInstall.allDetected'),
+          value: 'all',
+        });
+
+        const { selectedTool } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'selectedTool',
+            message: t('commands.mcpInstall.selectTool'),
+            choices,
+          },
+        ]);
+
+        tool = selectedTool;
+      }
+
+      const result = await mcpInstallService.run({
+        tool,
+        global: options.local ? false : options.global,
+        dryRun: options.dryRun,
+        verbose: options.verbose,
+        repoPath: process.cwd(),
+      });
+
+      if (result.installations.length > 0) {
+        ui.displayInfo('MCP', t('info.mcp.restartTools'));
+      }
+    } catch (error) {
+      ui.displayError(t('errors.mcp.installFailed', { tool: tool || 'unknown' }), error as Error);
+      process.exit(1);
+    }
+  });
+
 // Smart Start Command
 program
   .command('start')
@@ -479,6 +594,21 @@ program
       }
 
       ui.displaySuccess(t('success.start.complete', { details: details.join(', ') }));
+    } catch (error) {
+      ui.displayError(t('errors.cli.executionFailed'), error as Error);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('preview-splash')
+  .description(t('commands.previewSplash.description'))
+  .option('--title <title>', t('commands.previewSplash.options.title'))
+  .option('--directory <path>', t('commands.previewSplash.options.directory'), process.cwd())
+  .option('--model <model>', t('commands.fill.options.model'))
+  .action(async (options: any) => {
+    try {
+      await renderStartupSplash(options.directory, options.title, options.model);
     } catch (error) {
       ui.displayError(t('errors.cli.executionFailed'), error as Error);
       process.exit(1);
@@ -549,357 +679,10 @@ program
     }
   });
 
-// Skill Commands
-const skillCommand = program
-  .command('skill')
-  .description(t('commands.skill.description'));
-
-skillCommand
-  .command('init')
-  .description(t('commands.skill.init.description'))
-  .argument('[repo-path]', 'Repository path', process.cwd())
-  .option('-f, --force', 'Overwrite existing files')
-  .option('--skills <skills...>', 'Specific skills to scaffold')
-  .action(async (repoPath: string, options: any) => {
-    try {
-      const { createSkillGenerator } = await import('./generators/skills');
-      const generator = createSkillGenerator({ repoPath });
-      const result = await generator.generate({
-        skills: options.skills,
-        force: options.force,
-      });
-
-      ui.displaySuccess(`Skills initialized in ${result.skillsDir}`);
-      ui.displayInfo('Generated', result.generatedSkills.join(', ') || 'none');
-      if (result.skippedSkills.length > 0) {
-        ui.displayInfo('Skipped (already exist)', result.skippedSkills.join(', '));
-      }
-    } catch (error) {
-      ui.displayError('Failed to initialize skills', error as Error);
-      process.exit(1);
-    }
-  });
-
-skillCommand
-  .command('fill')
-  .description(t('commands.skill.fill.description'))
-  .argument('[repo-path]', 'Repository path', process.cwd())
-  .option('-o, --output <dir>', 'Output directory', '.context')
-  .option('-f, --force', 'Overwrite existing content')
-  .option('--skills <skills...>', 'Specific skills to fill')
-  .option('--model <model>', 'LLM model to use')
-  .option('--provider <provider>', 'LLM provider (anthropic, openai, google, openrouter)')
-  .option('--api-key <key>', 'API key for LLM provider')
-  .option('--base-url <url>', 'Base URL for custom LLM endpoint')
-  .option('--no-semantic', 'Disable semantic context mode')
-  .option('--use-lsp', 'Enable LSP for deeper analysis')
-  .option('-v, --verbose', 'Show detailed progress')
-  .option('--limit <number>', 'Limit number of skills to fill', parseInt)
-  .action(async (repoPath: string, options: any) => {
-    try {
-      const { SkillFillService } = await import('./services/fill/skillFillService');
-
-      const skillFillService = new SkillFillService({
-        ui,
-        t,
-        version: VERSION,
-        defaultModel: DEFAULT_MODEL,
-      });
-
-      const result = await skillFillService.run(repoPath, {
-        output: options.output,
-        skills: options.skills,
-        force: options.force,
-        model: options.model,
-        provider: options.provider,
-        apiKey: options.apiKey,
-        baseUrl: options.baseUrl,
-        semantic: options.semantic,
-        useLsp: options.useLsp,
-        verbose: options.verbose,
-        limit: options.limit,
-      });
-
-      if (result.filled.length > 0) {
-        ui.displaySuccess(t('success.skill.filled', { count: result.filled.length }));
-      }
-    } catch (error) {
-      ui.displayError(t('errors.skill.fillFailed'), error as Error);
-      process.exit(1);
-    }
-  });
-
-skillCommand
-  .command('list')
-  .description(t('commands.skill.list.description'))
-  .argument('[repo-path]', 'Repository path', process.cwd())
-  .option('--json', 'Output as JSON')
-  .action(async (repoPath: string, options: any) => {
-    try {
-      const { createSkillRegistry, BUILT_IN_SKILLS } = await import('./workflow/skills');
-      const registry = createSkillRegistry(repoPath);
-      const discovered = await registry.discoverAll();
-
-      if (options.json) {
-        console.log(JSON.stringify({
-          builtIn: discovered.builtIn.map(s => s.slug),
-          custom: discovered.custom.map(s => s.slug),
-          total: discovered.all.length,
-        }, null, 2));
-        return;
-      }
-
-      console.log('\nBuilt-in Skills:');
-      for (const skill of discovered.builtIn) {
-        const scaffolded = discovered.all.find(s => s.slug === skill.slug && s.path.includes('.context'));
-        const status = scaffolded ? '[scaffolded]' : '[available]';
-        console.log(`  ${skill.slug} ${status}`);
-        console.log(`    ${skill.metadata.description}`);
-      }
-
-      if (discovered.custom.length > 0) {
-        console.log('\nCustom Skills:');
-        for (const skill of discovered.custom) {
-          console.log(`  ${skill.slug}`);
-          console.log(`    ${skill.metadata.description}`);
-        }
-      }
-
-      console.log(`\nTotal: ${discovered.all.length} skills (${discovered.builtIn.length} built-in, ${discovered.custom.length} custom)`);
-    } catch (error) {
-      ui.displayError('Failed to list skills', error as Error);
-      process.exit(1);
-    }
-  });
-
-skillCommand
-  .command('export')
-  .description(t('commands.skill.export.description'))
-  .argument('[repo-path]', 'Repository path', process.cwd())
-  .option('-p, --preset <preset>', 'Export preset: claude, gemini, codex, all', 'all')
-  .option('-f, --force', 'Overwrite existing files')
-  .option('--include-builtin', 'Include built-in skills even if not scaffolded')
-  .option('--dry-run', 'Preview changes without writing')
-  .action(async (repoPath: string, options: any) => {
-    try {
-      const { SkillExportService } = await import('./services/export/skillExportService');
-      const exportService = new SkillExportService({
-        ui,
-        t,
-        version: VERSION,
-      });
-
-      const result = await exportService.run(repoPath, {
-        preset: options.preset,
-        force: options.force,
-        includeBuiltIn: options.includeBuiltin,
-        dryRun: options.dryRun,
-      });
-
-      if (options.dryRun) {
-        ui.displayInfo('Dry run', 'No files were written');
-      } else {
-        ui.displaySuccess(`Exported ${result.skillsExported.length} skills to ${result.targets.length} targets`);
-      }
-    } catch (error) {
-      ui.displayError('Failed to export skills', error as Error);
-      process.exit(1);
-    }
-  });
-
-skillCommand
-  .command('create <name>')
-  .description(t('commands.skill.create.description'))
-  .argument('[repo-path]', 'Repository path', process.cwd())
-  .option('-d, --description <text>', 'Skill description')
-  .option('--phases <phases...>', 'PREVC phases (P, R, E, V, C)')
-  .option('-f, --force', 'Overwrite if exists')
-  .action(async (name: string, repoPath: string, options: any) => {
-    try {
-      const { createSkillGenerator } = await import('./generators/skills');
-      const generator = createSkillGenerator({ repoPath });
-      const skillPath = await generator.generateCustomSkill({
-        name,
-        description: options.description || `TODO: Describe when to use ${name}`,
-        phases: options.phases,
-        force: options.force,
-      });
-
-      ui.displaySuccess(`Created skill: ${name}`);
-      ui.displayInfo('Path', skillPath);
-    } catch (error) {
-      ui.displayError('Failed to create skill', error as Error);
-      process.exit(1);
-    }
-  });
-
-// PREVC Workflow Commands
-const workflowCommand = program
-  .command('workflow')
-  .description('PREVC workflow management (Planning, Review, Execution, Validation, Confirmation)');
-
-// Helper to create workflow service dependencies
-const getWorkflowDeps = (): WorkflowServiceDependencies => ({
-  ui: {
-    displaySuccess: (msg: string) => ui.displaySuccess(msg),
-    displayError: (msg: string, err?: Error) => ui.displayError(msg, err),
-    displayInfo: (title: string, detail?: string) => ui.displayInfo(title, detail || '')
-  }
-});
-
-workflowCommand
-  .command('init <name>')
-  .description('Initialize a new PREVC workflow')
-  .option('-d, --description <text>', 'Project description for scale detection')
-  .option('-s, --scale <scale>', 'Project scale: QUICK, SMALL, MEDIUM, LARGE, ENTERPRISE')
-  .option('-r, --repo-path <path>', 'Repository path', process.cwd())
-  .action(async (name: string, options: any) => {
-    try {
-      const workflowService = new WorkflowService(options.repoPath, getWorkflowDeps());
-      const status = await workflowService.init({
-        name,
-        description: options.description,
-        scale: options.scale
-      });
-
-      ui.displaySuccess(`Workflow PREVC initialized: ${name}`);
-      ui.displayInfo('Scale', getScaleName(status.project.scale as any));
-      ui.displayInfo('Current Phase', `${status.project.current_phase} - ${PHASE_NAMES_PT[status.project.current_phase]}`);
-    } catch (error) {
-      ui.displayError('Failed to initialize workflow', error as Error);
-      process.exit(1);
-    }
-  });
-
-workflowCommand
-  .command('status')
-  .description('Show current workflow status')
-  .option('-r, --repo-path <path>', 'Repository path', process.cwd())
-  .action(async (options: any) => {
-    try {
-      const workflowService = new WorkflowService(options.repoPath, getWorkflowDeps());
-
-      if (!await workflowService.hasWorkflow()) {
-        ui.displayError('No workflow found. Run "workflow init <name>" first.');
-        process.exit(1);
-      }
-
-      const formattedStatus = await workflowService.getFormattedStatus();
-      console.log(formattedStatus);
-
-      const actions = await workflowService.getRecommendedActions();
-      if (actions.length > 0) {
-        console.log('\nRecommended actions:');
-        actions.forEach((action, i) => console.log(`  ${i + 1}. ${action}`));
-      }
-    } catch (error) {
-      ui.displayError('Failed to get workflow status', error as Error);
-      process.exit(1);
-    }
-  });
-
-workflowCommand
-  .command('advance')
-  .description('Complete current phase and advance to next')
-  .option('-r, --repo-path <path>', 'Repository path', process.cwd())
-  .option('-o, --outputs <files...>', 'Output files generated in current phase')
-  .action(async (options: any) => {
-    try {
-      const workflowService = new WorkflowService(options.repoPath, getWorkflowDeps());
-
-      if (!await workflowService.hasWorkflow()) {
-        ui.displayError('No workflow found. Run "workflow init <name>" first.');
-        process.exit(1);
-      }
-
-      const nextPhase = await workflowService.advance(options.outputs);
-
-      if (nextPhase) {
-        ui.displaySuccess(`Advanced to phase: ${nextPhase} - ${PHASE_NAMES_PT[nextPhase]}`);
-      } else {
-        ui.displaySuccess('Workflow completed!');
-      }
-    } catch (error) {
-      ui.displayError('Failed to advance workflow', error as Error);
-      process.exit(1);
-    }
-  });
-
-workflowCommand
-  .command('handoff <from> <to>')
-  .description('Perform handoff between roles')
-  .option('-r, --repo-path <path>', 'Repository path', process.cwd())
-  .option('-a, --artifacts <files...>', 'Artifacts to hand off')
-  .action(async (from: string, to: string, options: any) => {
-    try {
-      const workflowService = new WorkflowService(options.repoPath, getWorkflowDeps());
-
-      if (!await workflowService.hasWorkflow()) {
-        ui.displayError('No workflow found. Run "workflow init <name>" first.');
-        process.exit(1);
-      }
-
-      await workflowService.handoff(from as PrevcRole, to as PrevcRole, options.artifacts || []);
-      ui.displaySuccess(`Handoff: ${ROLE_DISPLAY_NAMES[from as PrevcRole]} → ${ROLE_DISPLAY_NAMES[to as PrevcRole]}`);
-    } catch (error) {
-      ui.displayError('Failed to perform handoff', error as Error);
-      process.exit(1);
-    }
-  });
-
-workflowCommand
-  .command('collaborate <topic>')
-  .description('Start a collaboration session between roles')
-  .option('-r, --repo-path <path>', 'Repository path', process.cwd())
-  .option('-p, --participants <roles...>', 'Participating roles')
-  .action(async (topic: string, options: any) => {
-    try {
-      const workflowService = new WorkflowService(options.repoPath, getWorkflowDeps());
-
-      const session = await workflowService.startCollaboration(
-        topic,
-        options.participants as PrevcRole[]
-      );
-
-      ui.displaySuccess(`Collaboration started: ${topic}`);
-      ui.displayInfo('Session ID', session.getId());
-      ui.displayInfo('Participants', session.getParticipantNames().join(', '));
-      console.log('\nUse MCP tools to contribute and synthesize the collaboration.');
-    } catch (error) {
-      ui.displayError('Failed to start collaboration', error as Error);
-      process.exit(1);
-    }
-  });
-
-workflowCommand
-  .command('role <action> <role>')
-  .description('Manage role status (start/complete)')
-  .option('-r, --repo-path <path>', 'Repository path', process.cwd())
-  .option('-o, --outputs <files...>', 'Output files (for complete action)')
-  .action(async (action: string, role: string, options: any) => {
-    try {
-      const workflowService = new WorkflowService(options.repoPath, getWorkflowDeps());
-
-      if (!await workflowService.hasWorkflow()) {
-        ui.displayError('No workflow found. Run "workflow init <name>" first.');
-        process.exit(1);
-      }
-
-      if (action === 'start') {
-        await workflowService.startRole(role as PrevcRole);
-        ui.displaySuccess(`Started role: ${ROLE_DISPLAY_NAMES[role as PrevcRole]}`);
-      } else if (action === 'complete') {
-        await workflowService.completeRole(role as PrevcRole, options.outputs || []);
-        ui.displaySuccess(`Completed role: ${ROLE_DISPLAY_NAMES[role as PrevcRole]}`);
-      } else {
-        ui.displayError(`Unknown action: ${action}. Use 'start' or 'complete'.`);
-        process.exit(1);
-      }
-    } catch (error) {
-      ui.displayError('Failed to manage role', error as Error);
-      process.exit(1);
-    }
-  });
+// Skill and Workflow Commands - extracted to modular files
+import { registerSkillCommands, registerWorkflowCommands } from './cli/commands';
+registerSkillCommands({ program, ui, t, version: VERSION, defaultModel: DEFAULT_MODEL });
+registerWorkflowCommands({ program, ui, t, version: VERSION, defaultModel: DEFAULT_MODEL });
 
 export async function runInit(repoPath: string, type: string, rawOptions: any): Promise<void> {
   await initService.run(repoPath, type, rawOptions);
@@ -939,18 +722,14 @@ export async function runLlmFill(repoPath: string, rawOptions: any): Promise<voi
 }
 
 async function selectLocale(showWelcome: boolean): Promise<void> {
-  const { locale } = await inquirer.prompt<{ locale: Locale }>([
-    {
-      type: 'list',
-      name: 'locale',
-      message: t('prompts.language.select'),
-      default: currentLocale,
-      choices: SUPPORTED_LOCALES.map(option => ({
-        value: option,
-        name: t(localeLabelKeys[option])
-      }))
-    }
-  ]);
+  const locale = await themedSelect<Locale>({
+    message: t('prompts.language.select'),
+    default: currentLocale,
+    choices: SUPPORTED_LOCALES.map(option => ({
+      value: option,
+      name: t(localeLabelKeys[option])
+    }))
+  });
 
   const normalizedLocale = normalizeLocale(locale);
   currentLocale = normalizedLocale;
@@ -962,64 +741,72 @@ async function selectLocale(showWelcome: boolean): Promise<void> {
   }
 }
 
-type InteractiveAction = 'scaffold' | 'fill' | 'plan' | 'syncAgents' | 'update' | 'workflow' | 'skills' | 'changeLanguage' | 'exit' | 'quickSync' | 'agents' | 'settings';
-type StateAction = 'create' | 'fill' | 'menu' | 'exit' | 'scaffold';
+type InteractiveAction = 'scaffold' | 'fill' | 'plan' | 'syncAgents' | 'update' | 'workflow' | 'skills' | 'changeLanguage' | 'exit' | 'quickSync' | 'reverseSync' | 'agents' | 'settings' | 'mcpInstall' | 'viewPending';
+type StateAction = 'create' | 'enhance' | 'fill' | 'exit' | 'scaffold' | 'viewPending';
 
 async function runInteractive(): Promise<void> {
-  await selectLocale(false); // Don't show welcome yet
-
-  // Show welcome screen with PREVC explanation
-  ui.displayWelcome(VERSION);
-  ui.displayPrevcExplanation();
-
-  // Wait for user to press Enter
-  await inquirer.prompt([
-    {
-      type: 'input',
-      name: 'continue',
-      message: t('prompts.pressEnter'),
-    },
-  ]);
-
-  console.log('\n');
+  // Auto-load .env if it exists (no-op if absent)
+  dotenv.config({ quiet: true });
 
   const projectPath = process.cwd();
   const detector = new StateDetector({ projectPath });
   const result = await detector.detect();
 
-  // Get quick stats for compact status
-  const quickSyncService = new QuickSyncService({
-    ui,
-    t,
-    version: VERSION,
-    defaultModel: DEFAULT_MODEL,
-  });
-  const stats = await quickSyncService.getStats(projectPath);
+  // Detect smart defaults for display
+  const defaults = await detectSmartDefaults(projectPath);
 
-  // Display compact header
   console.log('');
-  console.log(`${colors.primaryBold(`${PACKAGE_NAME}`)} ${colors.secondary(`v${VERSION}`)}`);
-  console.log(`${colors.secondary('Project:')} ${projectPath}`);
+  console.log(renderSplashScreen({
+    title: packageNameToDisplayName(PACKAGE_NAME),
+    version: VERSION,
+    lines: [
+      {
+        label: t('ui.splash.modelLabel'),
+        value: defaults.model || DEFAULT_MODEL,
+        note: defaults.provider && defaults.apiKeyConfigured
+          ? t('ui.splash.modelConfigured', { provider: defaults.provider })
+          : t('ui.splash.modelDefault')
+      },
+      {
+        label: t('ui.splash.directoryLabel'),
+        value: formatSplashDirectory(projectPath)
+      }
+    ]
+  }));
+
+  // Show what was detected from environment/project
+  const detectedParts: string[] = [];
+  if (defaults.detectedLanguages.length > 0) {
+    const langs = defaults.detectedLanguages.map(l => l.charAt(0).toUpperCase() + l.slice(1)).join(', ');
+    detectedParts.push(t('status.detected.project', { languages: langs }));
+  }
+  if (defaults.provider && defaults.apiKeyConfigured) {
+    detectedParts.push(t('status.detected.provider', { provider: defaults.provider }));
+  }
+  if (detectedParts.length > 0) {
+    console.log(colors.secondaryDim(detectedParts.join(', ')));
+  }
 
   // Show compact status line based on state
-  switch (result.state) {
-    case 'new':
-      console.log(colors.secondaryDim(t('status.new')));
-      break;
-    case 'unfilled':
-      console.log(colors.secondaryDim(t('status.unfilled', { count: result.details.unfilledFiles })));
-      break;
-    case 'outdated':
+  if (result.state === 'new') {
+    console.log(colors.secondaryDim(t('status.new')));
+  } else if (result.state === 'unfilled') {
+    console.log(colors.secondaryDim(t('status.unfilled', { count: result.details.unfilledFiles })));
+  } else {
+    // Get quick stats only when we have context
+    const quickSyncService = new QuickSyncService({
+      ui,
+      t,
+      version: VERSION,
+      defaultModel: DEFAULT_MODEL,
+    });
+    const stats = await quickSyncService.getStats(projectPath);
+
+    if (result.state === 'outdated') {
       console.log(colors.warning(
-        t('status.outdated', {
-          docs: stats.docs,
-          days: result.details.daysBehind || 0,
-          agents: stats.agents,
-          skills: stats.skills
-        })
+        t('status.outdated', { days: result.details.daysBehind || 0 })
       ));
-      break;
-    case 'ready':
+    } else {
       console.log(colors.success(
         t('status.compact', {
           docs: stats.docs,
@@ -1027,105 +814,51 @@ async function runInteractive(): Promise<void> {
           skills: stats.skills
         })
       ));
-      break;
+    }
   }
   console.log('');
 
-  // Handle state-based flow
+  // Handle state-based flow: auto-detect what to show
   if (result.state === 'new') {
-    const { action } = await inquirer.prompt<{ action: StateAction }>([
-      {
-        type: 'list',
-        name: 'action',
-        message: t('prompts.main.action'),
-        choices: [
-          { name: t('prompts.main.choice.quickSetup'), value: 'create' },
-          { name: t('prompts.main.choice.scaffoldOnly'), value: 'scaffold' },
-          { name: t('prompts.main.choice.exit'), value: 'exit' }
-        ]
-      }
-    ]);
+    // New project: show quick setup options + MCP install
+    const action = await themedSelect<StateAction>({
+      message: t('prompts.main.action'),
+      choices: [
+        { name: t('prompts.main.choice.quickSetup'), value: 'create' },
+        { name: t('prompts.main.choice.enhanceWithAI'), value: 'enhance' },
+        { name: t('prompts.main.choice.mcpInstall'), value: 'scaffold' },
+        { name: t('prompts.main.choice.exit'), value: 'exit' }
+      ]
+    });
 
     if (action === 'create') {
-      // Run init + fill with AI + LSP automatically
       await runQuickSetup(projectPath);
+    } else if (action === 'enhance') {
+      await runQuickSetup(projectPath);
+      await runEnhanceWithAI(projectPath);
     } else if (action === 'scaffold') {
-      // Scaffold only without AI fill
-      await runInteractiveScaffold();
+      await runMcpInstall();
     }
-    return;
-  }
 
-  if (result.state === 'unfilled') {
-    const { action } = await inquirer.prompt<{ action: StateAction }>([
-      {
-        type: 'list',
-        name: 'action',
-        message: t('prompts.main.unfilledPrompt', { count: result.details.unfilledFiles }),
-        choices: [
-          { name: t('prompts.main.choice.fill'), value: 'fill' },
-          { name: t('prompts.main.choice.moreOptions'), value: 'menu' },
-          { name: t('prompts.main.choice.exit'), value: 'exit' }
-        ]
-      }
-    ]);
-
-    if (action === 'fill') {
-      await runInteractiveLlmFill();
-      return;
-    } else if (action === 'menu') {
+    const postOnboardingState = await detector.detect();
+    if (postOnboardingState.state !== 'new') {
       await runFullMenu();
     }
     return;
   }
 
-  // For 'ready' or 'outdated' states, show full menu
-  await runFullMenu(result.state === 'outdated' ? result.details.daysBehind : undefined);
+  // For any project that has completed onboarding, always show the full menu.
+  await runFullMenu();
 }
 
 async function runQuickSetup(projectPath: string): Promise<void> {
-  // AI-first: Detect smart defaults automatically
-  const defaults = await detectSmartDefaults();
-
-  // If no API key found, prompt for one
-  let llmConfig: { provider: AIProvider; model: string; apiKey?: string; baseUrl?: string } | null = null;
-
-  if (defaults.apiKeyConfigured && defaults.provider) {
-    // Auto-detected config
-    llmConfig = {
-      provider: defaults.provider,
-      model: DEFAULT_MODEL,
-      apiKey: getApiKeyFromEnv(defaults.provider!),
-    };
-    console.log(colors.secondary(`  Auto-detected: ${defaults.provider} API key found`));
-  } else {
-    // Need to get API key from user
-    llmConfig = await promptLLMConfig(t);
-    if (!llmConfig) {
-      ui.displayInfo(t('info.setup.incomplete.title'), t('info.setup.incomplete.detail'));
-      return;
-    }
-  }
-
-  const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
-    {
-      type: 'confirm',
-      name: 'confirm',
-      message: t('prompts.setup.confirmContinue'),
-      default: true
-    }
-  ]);
-
-  if (!confirm) {
-    return;
-  }
-
-  // Run init with semantic analysis
+  // Quick Setup: Always creates scaffolds with semantic autoFill (no AI required)
   ui.startSpinner(t('spinner.setup.creatingStructure'));
   try {
     const localInitService = new InitService({ ui, t, version: VERSION });
     await localInitService.run(projectPath, 'both', {
-      semantic: true
+      semantic: true,
+      autoFill: true  // Always use autoFill for semantic-based content
     });
     ui.stopSpinner();
   } catch (error) {
@@ -1134,7 +867,7 @@ async function runQuickSetup(projectPath: string): Promise<void> {
     return;
   }
 
-  // Initialize skills too (AI-first)
+  // Initialize skills too
   try {
     const { createSkillGenerator } = await import('./generators/skills');
     const skillGenerator = createSkillGenerator({ repoPath: projectPath });
@@ -1143,118 +876,210 @@ async function runQuickSetup(projectPath: string): Promise<void> {
     // Skills init failure is not critical
   }
 
-  // Fill with AI + LSP (default behavior)
-  ui.startSpinner(t('spinner.setup.fillingDocs'));
-  try {
-    const localFillService = new FillService({ ui, t, version: VERSION, defaultModel: DEFAULT_MODEL });
-    await localFillService.run(projectPath, {
-      model: llmConfig.model,
-      provider: llmConfig.provider,
-      apiKey: llmConfig.apiKey,
-      baseUrl: llmConfig.baseUrl,
-      verbose: false,
-      semantic: true,
-      useLsp: true  // LSP enabled by default
-    });
-    ui.stopSpinner();
-    ui.displaySuccess(t('success.setup.docsCreated'));
-    console.log(colors.secondaryDim(`  ${t('info.setup.reviewFiles')}`));
-  } catch (error) {
-    ui.stopSpinner();
-    ui.displayError('Failed to fill documentation', error as Error);
+  ui.displaySuccess(t('success.setup.scaffoldCreated'));
+  console.log(colors.secondaryDim(`  ${t('info.setup.enhanceWithAI')}`));
+}
+
+async function runEnhanceWithAI(projectPath: string): Promise<void> {
+  // Enhance existing scaffolds with AI
+  const defaults = await detectSmartDefaults();
+
+  if (!defaults.apiKeyConfigured || !defaults.provider) {
+    // Need to get API key from user
+    const llmConfig = await promptLLMConfig(t);
+    if (!llmConfig) {
+      ui.displayInfo(t('info.setup.incomplete.title'), t('info.setup.incomplete.detail'));
+      return;
+    }
+
+    ui.startSpinner(t('spinner.setup.fillingDocs'));
+    try {
+      const localFillService = new FillService({ ui, t, version: VERSION, defaultModel: DEFAULT_MODEL });
+      await localFillService.run(projectPath, {
+        model: llmConfig.model,
+        provider: llmConfig.provider,
+        apiKey: llmConfig.apiKey,
+        baseUrl: llmConfig.baseUrl,
+        verbose: false,
+        semantic: true,
+        useLsp: true
+      });
+      ui.stopSpinner();
+      ui.displaySuccess(t('success.setup.docsCreated'));
+    } catch (error) {
+      ui.stopSpinner();
+      ui.displayError('Failed to fill documentation', error as Error);
+    }
+  } else {
+    // Auto-detected API key
+    console.log(colors.secondary(`  Auto-detected: ${defaults.provider} API key found`));
+
+    const llmConfig = {
+      provider: defaults.provider,
+      model: DEFAULT_MODEL,
+      apiKey: getApiKeyFromEnv(defaults.provider),
+    };
+
+    ui.startSpinner(t('spinner.setup.fillingDocs'));
+    try {
+      const localFillService = new FillService({ ui, t, version: VERSION, defaultModel: DEFAULT_MODEL });
+      await localFillService.run(projectPath, {
+        model: llmConfig.model,
+        provider: llmConfig.provider,
+        apiKey: llmConfig.apiKey,
+        verbose: false,
+        semantic: true,
+        useLsp: true
+      });
+      ui.stopSpinner();
+      ui.displaySuccess(t('success.setup.docsCreated'));
+    } catch (error) {
+      ui.stopSpinner();
+      ui.displayError('Failed to fill documentation', error as Error);
+    }
   }
 }
 
-async function runFullMenu(daysBehind?: number): Promise<void> {
+async function runFullMenu(): Promise<void> {
   let exitRequested = false;
   while (!exitRequested) {
-    const updateLabel = daysBehind
-      ? t('prompts.main.choice.updateDocsBehind', { daysBehind })
-      : t('prompts.main.choice.updateDocs');
+    const detector = new StateDetector({ projectPath: process.cwd() });
+    const state = await detector.detect();
+    const isUnfilled = state.state === 'unfilled';
+    const fillLabel = isUnfilled
+      ? t('prompts.main.choice.fill')
+      : state.state === 'outdated'
+        ? t('prompts.main.choice.updateDocsBehind', { daysBehind: state.details.daysBehind || 0 })
+        : t('prompts.main.choice.updateDocs');
 
-    // New menu structure with separators - organized by frequency of use
-    const choices = [
-      // Quick Actions (most used)
-      { name: t('prompts.main.choice.quickSync'), value: 'quickSync' as InteractiveAction },
-      { name: t('prompts.main.choice.startWorkflow'), value: 'workflow' as InteractiveAction },
-      { name: t('prompts.main.choice.createPlan'), value: 'plan' as InteractiveAction },
-      new inquirer.Separator(),
-      // Manage
-      { name: updateLabel, value: 'fill' as InteractiveAction },
-      { name: t('prompts.main.choice.manageSkills'), value: 'skills' as InteractiveAction },
-      { name: t('prompts.main.choice.manageAgents'), value: 'agents' as InteractiveAction },
-      new inquirer.Separator(),
-      // Config
-      { name: t('prompts.main.choice.rescaffold'), value: 'scaffold' as InteractiveAction },
-      { name: t('prompts.main.choice.settings'), value: 'settings' as InteractiveAction },
-      { name: t('prompts.main.choice.exit'), value: 'exit' as InteractiveAction }
-    ];
+    const choices = isUnfilled
+      ? [
+        { name: fillLabel, value: 'fill' as InteractiveAction },
+        { name: t('prompts.main.choice.viewPending'), value: 'viewPending' as InteractiveAction },
+        new Separator(),
+        { name: t('prompts.main.choice.quickSync'), value: 'quickSync' as InteractiveAction },
+        { name: t('prompts.main.choice.reverseSync'), value: 'reverseSync' as InteractiveAction },
+        { name: t('prompts.main.choice.startWorkflow'), value: 'workflow' as InteractiveAction },
+        { name: t('prompts.main.choice.createPlan'), value: 'plan' as InteractiveAction },
+        { name: t('prompts.main.choice.manageSkills'), value: 'skills' as InteractiveAction },
+        new Separator(),
+        { name: t('prompts.main.choice.manageAgents'), value: 'agents' as InteractiveAction },
+        { name: t('prompts.main.choice.rescaffold'), value: 'scaffold' as InteractiveAction },
+        { name: t('prompts.main.choice.mcpInstall'), value: 'mcpInstall' as InteractiveAction },
+        { name: t('prompts.main.choice.settings'), value: 'settings' as InteractiveAction },
+        { name: t('prompts.main.choice.exit'), value: 'exit' as InteractiveAction }
+      ]
+      : [
+        { name: t('prompts.main.choice.quickSync'), value: 'quickSync' as InteractiveAction },
+        { name: t('prompts.main.choice.reverseSync'), value: 'reverseSync' as InteractiveAction },
+        { name: t('prompts.main.choice.startWorkflow'), value: 'workflow' as InteractiveAction },
+        { name: t('prompts.main.choice.createPlan'), value: 'plan' as InteractiveAction },
+        { name: fillLabel, value: 'fill' as InteractiveAction },
+        { name: t('prompts.main.choice.manageSkills'), value: 'skills' as InteractiveAction },
+        new Separator(),
+        { name: t('prompts.main.choice.manageAgents'), value: 'agents' as InteractiveAction },
+        { name: t('prompts.main.choice.rescaffold'), value: 'scaffold' as InteractiveAction },
+        { name: t('prompts.main.choice.mcpInstall'), value: 'mcpInstall' as InteractiveAction },
+        { name: t('prompts.main.choice.settings'), value: 'settings' as InteractiveAction },
+        { name: t('prompts.main.choice.exit'), value: 'exit' as InteractiveAction }
+      ];
 
-    const { action } = await inquirer.prompt<{ action: InteractiveAction }>([
-      {
-        type: 'list',
-        name: 'action',
-        message: t('prompts.main.action'),
-        choices
-      }
-    ]);
-
-    if (action === 'settings') {
-      await runSettings();
-      continue;
-    }
+    const action = await themedSelect<InteractiveAction>({
+      message: isUnfilled
+        ? t('prompts.main.unfilledPrompt', { count: state.details.unfilledFiles })
+        : t('prompts.main.action'),
+      choices
+    });
 
     if (action === 'exit') {
       exitRequested = true;
       break;
     }
 
+    if (action === 'viewPending') {
+      await displayPendingFiles(state.contextDir);
+      continue;
+    }
+
     if (action === 'quickSync') {
       await runQuickSync();
-    } else if (action === 'scaffold') {
-      await runInteractiveScaffold();
+    } else if (action === 'reverseSync') {
+      await runReverseSync();
     } else if (action === 'fill') {
       await runInteractiveLlmFill();
     } else if (action === 'plan') {
       await runInteractivePlan();
-    } else if (action === 'agents') {
-      await runManageAgents();
     } else if (action === 'workflow') {
       await runInteractiveWorkflow();
     } else if (action === 'skills') {
       await runInteractiveSkills();
+    } else if (action === 'agents') {
+      await runManageAgents();
+    } else if (action === 'scaffold') {
+      await runInteractiveScaffold();
+    } else if (action === 'mcpInstall') {
+      await runMcpInstall();
+    } else if (action === 'settings') {
+      await runSettings();
     }
-
-    ui.displayInfo(
-      t('info.interactive.returning.title'),
-      t('info.interactive.returning.detail')
-    );
   }
 
   ui.displaySuccess(t('success.interactive.goodbye'));
 }
 
+async function displayPendingFiles(contextDir: string): Promise<void> {
+  const { getUnfilledFiles } = await import('./utils/frontMatter');
+  const unfilled = await getUnfilledFiles(contextDir);
+
+  console.log();
+  console.log(typography.subheader(t('prompts.main.pendingFilesHeader')));
+  for (const file of unfilled) {
+    const relative = path.relative(contextDir, file);
+    console.log(`  ${colors.secondary('•')} ${colors.primary(relative)}`);
+  }
+  console.log();
+}
+
+async function runMcpInstall(): Promise<void> {
+  const mcpInstallService = new MCPInstallService({ ui, t, version: VERSION });
+  const supportedTools = mcpInstallService.getSupportedTools();
+  const detectedTools = await mcpInstallService.detectInstalledTools();
+
+  const mcpChoices = supportedTools.map(tool => ({
+    name: detectedTools.includes(tool.id)
+      ? `${tool.displayName} (${t('labels.detected')})`
+      : tool.displayName,
+    value: tool.id,
+  }));
+
+  mcpChoices.unshift({
+    name: t('commands.mcpInstall.allDetected'),
+    value: 'all',
+  });
+
+  const { selectedTool } = await inquirer.prompt([{
+    type: 'list',
+    name: 'selectedTool',
+    message: t('commands.mcpInstall.selectTool'),
+    choices: mcpChoices,
+  }]);
+
+  const mcpResult = await mcpInstallService.run({
+    tool: selectedTool,
+    global: true,
+    dryRun: false,
+    verbose: false,
+    repoPath: process.cwd(),
+  });
+
+  if (mcpResult.installations.length > 0) {
+    ui.displayInfo('MCP', t('info.mcp.restartTools'));
+  }
+}
+
 async function runInteractiveScaffold(): Promise<void> {
-  const { repoPath } = await inquirer.prompt<{ repoPath: string }>([
-    {
-      type: 'input',
-      name: 'repoPath',
-      message: t('prompts.scaffold.repoPath'),
-      default: process.cwd()
-    }
-  ]);
-
-  const resolvedRepo = path.resolve(repoPath.trim() || '.');
-  const defaultOutput = path.resolve(resolvedRepo, '.context');
-
-  const { outputDir } = await inquirer.prompt<{ outputDir: string }>([
-    {
-      type: 'input',
-      name: 'outputDir',
-      message: t('commands.init.options.output'),
-      default: defaultOutput
-    }
-  ]);
+  const resolvedRepo = process.cwd();
+  const outputDir = path.resolve(resolvedRepo, '.context');
 
   // Multi-select checkbox for scaffold components
   const { scaffoldComponents } = await inquirer.prompt<{ scaffoldComponents: string[] }>([
@@ -1276,14 +1101,7 @@ async function runInteractiveScaffold(): Promise<void> {
     return;
   }
 
-  const { verbose } = await inquirer.prompt<{ verbose: boolean }>([
-    {
-      type: 'confirm',
-      name: 'verbose',
-      message: t('prompts.common.verbose'),
-      default: false
-    }
-  ]);
+  const verbose = false;
 
   // Determine what to scaffold
   const scaffoldDocs = scaffoldComponents.includes('docs');
@@ -1312,9 +1130,10 @@ async function runInteractiveScaffold(): Promise<void> {
   if (scaffoldSkills) {
     try {
       const { createSkillGenerator } = await import('./generators/skills');
+      const relativeOutputDir = path.relative(resolvedRepo, outputDir);
       const generator = createSkillGenerator({
         repoPath: resolvedRepo,
-        outputDir
+        outputDir: relativeOutputDir || '.context'
       });
 
       // Display step for skills scaffolding
@@ -1350,143 +1169,42 @@ async function runInteractiveScaffold(): Promise<void> {
 
 async function runInteractiveLlmFill(): Promise<void> {
   const defaults = await detectSmartDefaults();
-  const interactiveMode = await promptInteractiveMode(t);
+  const resolvedRepo = defaults.repoPath;
 
-  if (interactiveMode === 'quick') {
-    // Quick mode: minimal prompts with smart defaults
-    const { confirmRepo } = await inquirer.prompt<{ confirmRepo: boolean }>([
-      {
-        type: 'confirm',
-        name: 'confirmRepo',
-        message: `${t('prompts.quick.confirmRepo')} (${defaults.repoPath})`,
-        default: true
-      }
-    ]);
+  // Get LLM config (auto-detected or prompt for API key)
+  const llmConfig = await promptLLMConfig(t, { defaultModel: DEFAULT_MODEL, skipIfConfigured: true });
 
-    const resolvedRepo = confirmRepo ? defaults.repoPath : (await inquirer.prompt<{ repoPath: string }>([
-      { type: 'input', name: 'repoPath', message: t('prompts.fill.repoPath'), default: defaults.repoPath }
-    ])).repoPath;
-
-    // Get LLM config (auto-detected or prompt for API key)
-    const llmConfig = await promptLLMConfig(t, { defaultModel: DEFAULT_MODEL, skipIfConfigured: true });
-
-    // Build summary
-    const summary: ConfigSummary = {
-      operation: 'fill',
-      repoPath: resolvedRepo,
-      outputDir: defaults.outputDir,
-      provider: llmConfig.provider,
-      model: llmConfig.model,
-      apiKeySource: llmConfig.autoDetected ? 'env' : llmConfig.apiKey ? 'provided' : 'none',
-      options: {
-        Semantic: true,
-        Languages: defaults.detectedLanguages.join(', '),
-        LSP: false
-      }
-    };
-
-    displayConfigSummary(summary, t);
-    const proceed = await promptConfirmProceed(t);
-
-    if (proceed) {
-      await fillService.run(resolvedRepo, {
-        output: defaults.outputDir,
-        model: llmConfig.model,
-        provider: llmConfig.provider,
-        apiKey: llmConfig.apiKey,
-        verbose: false,
-        semantic: true,
-        languages: defaults.detectedLanguages,
-        useLsp: false
-      });
-    }
+  if (!llmConfig) {
     return;
   }
 
-  // Advanced mode: full configuration
-  const { repoPath } = await inquirer.prompt<{ repoPath: string }>([
-    {
-      type: 'input',
-      name: 'repoPath',
-      message: t('prompts.fill.repoPath'),
-      default: defaults.repoPath
-    }
-  ]);
-
-  const resolvedRepo = path.resolve(repoPath.trim() || '.');
-  const defaultOutput = path.resolve(resolvedRepo, '.context');
-
-  const { outputDir, promptPath: promptPathInput } = await inquirer.prompt<{ outputDir: string; promptPath: string }>([
-    {
-      type: 'input',
-      name: 'outputDir',
-      message: t('commands.fill.options.output'),
-      default: defaultOutput
-    },
-    {
-      type: 'input',
-      name: 'promptPath',
-      message: t('prompts.fill.promptPath'),
-      default: ''
-    }
-  ]);
-
-  const promptPath = promptPathInput.trim() ? path.resolve(promptPathInput.trim()) : undefined;
-
-  const { limit } = await inquirer.prompt<{ limit: string }>([
-    {
-      type: 'input',
-      name: 'limit',
-      message: t('prompts.fill.limit'),
-      filter: (value: string) => value.trim()
-    }
-  ]);
-  const limitValue = limit ? parseInt(limit, 10) : undefined;
-  const parsedLimit = Number.isNaN(limitValue) ? undefined : limitValue;
-
-  // Use shared LLM prompt helper
-  const llmConfig = await promptLLMConfig(t, { defaultModel: DEFAULT_MODEL, skipIfConfigured: false });
-
-  // Use shared analysis options prompt
-  const analysisOptions = await promptAnalysisOptions(t, {
-    languages: defaults.detectedLanguages,
-    useLsp: false
-  });
-
-  // Show summary before execution
+  // Build summary
   const summary: ConfigSummary = {
     operation: 'fill',
     repoPath: resolvedRepo,
-    outputDir,
+    outputDir: defaults.outputDir,
     provider: llmConfig.provider,
     model: llmConfig.model,
     apiKeySource: llmConfig.autoDetected ? 'env' : llmConfig.apiKey ? 'provided' : 'none',
     options: {
-      Semantic: analysisOptions.semantic,
-      Languages: analysisOptions.languages?.join(', ') || 'none',
-      LSP: analysisOptions.useLsp,
-      Verbose: analysisOptions.verbose,
-      ...(parsedLimit ? { Limit: String(parsedLimit) } : {})
+      Semantic: true,
+      Languages: defaults.detectedLanguages.join(', '),
+      LSP: false
     }
   };
 
   displayConfigSummary(summary, t);
-  const proceed = await promptConfirmProceed(t);
 
-  if (proceed) {
-    await fillService.run(resolvedRepo, {
-      output: outputDir,
-      prompt: promptPath,
-      limit: parsedLimit,
-      model: llmConfig.model,
-      provider: llmConfig.provider,
-      apiKey: llmConfig.apiKey,
-      verbose: analysisOptions.verbose,
-      semantic: analysisOptions.semantic,
-      languages: analysisOptions.languages,
-      useLsp: analysisOptions.useLsp
-    });
-  }
+  await fillService.run(resolvedRepo, {
+    output: defaults.outputDir,
+    model: llmConfig.model,
+    provider: llmConfig.provider,
+    apiKey: llmConfig.apiKey,
+    verbose: false,
+    semantic: true,
+    languages: defaults.detectedLanguages,
+    useLsp: false
+  });
 }
 
 function generatePlanSlug(goal: string): string {
@@ -1523,95 +1241,11 @@ async function runInteractivePlan(): Promise<void> {
   const planName = generatePlanSlug(planGoal);
   const planSummary = planGoal;
 
-  const interactiveMode = await promptInteractiveMode(t);
-
-  if (interactiveMode === 'quick') {
-    // Quick mode: choose scaffold or fill with defaults
-    const { action } = await inquirer.prompt<{ action: 'scaffold' | 'fill' }>([
-      {
-        type: 'list',
-        name: 'action',
-        message: t('prompts.plan.mode'),
-        choices: [
-          { name: t('prompts.plan.modeScaffold'), value: 'scaffold' },
-          { name: t('prompts.plan.modeFill'), value: 'fill' }
-        ],
-        default: 'scaffold'
-      }
-    ]);
-
-    if (action === 'scaffold') {
-      // Quick scaffold: just create the template
-      const generator = new PlanGenerator();
-      ui.startSpinner(t('spinner.plan.creating'));
-
-      try {
-        const result = await generator.generatePlan({
-          planName,
-          summary: planSummary,
-          outputDir: defaults.outputDir,
-          verbose: false,
-          semantic: true,
-          projectPath: defaults.repoPath
-        });
-
-        ui.updateSpinner(t('spinner.plan.created'), 'success');
-        ui.displaySuccess(t('success.plan.createdAt', { path: colors.accent(result.relativePath) }));
-      } catch (error) {
-        ui.updateSpinner(t('spinner.plan.creationFailed'), 'fail');
-        ui.displayError(t('errors.plan.creationFailed'), error as Error);
-      } finally {
-        ui.stopSpinner();
-      }
-      return;
-    }
-
-    // Quick fill: use auto-detected LLM config
-    const llmConfig = await promptLLMConfig(t, { defaultModel: DEFAULT_MODEL, skipIfConfigured: true });
-
-    const configSummary: ConfigSummary = {
-      operation: 'plan',
-      repoPath: defaults.repoPath,
-      outputDir: defaults.outputDir,
-      provider: llmConfig.provider,
-      model: llmConfig.model,
-      apiKeySource: llmConfig.autoDetected ? 'env' : llmConfig.apiKey ? 'provided' : 'none',
-      options: {
-        Goal: planSummary,
-        'File': `${planName}.md`,
-        LSP: true,
-        'Dry Run': false
-      }
-    };
-
-    displayConfigSummary(configSummary, t);
-    const proceed = await promptConfirmProceed(t);
-
-    if (proceed) {
-      try {
-        await planService.scaffoldPlanIfNeeded(planName, defaults.outputDir, { summary: planSummary });
-        await planService.fillPlan(planName, {
-          output: defaults.outputDir,
-          repo: defaults.repoPath,
-          dryRun: false,
-          provider: llmConfig.provider,
-          model: llmConfig.model,
-          apiKey: llmConfig.apiKey,
-          lsp: true
-        });
-      } catch (error) {
-        ui.displayError(t('errors.plan.fillFailed'), error as Error);
-      }
-    }
-    return;
-  }
-
-  // Advanced mode: full configuration
-  const defaultOutput = path.resolve(process.cwd(), '.context');
-  const { mode } = await inquirer.prompt<{ mode: 'scaffold' | 'fill' }>([
+  // Choose scaffold or fill with defaults
+  const { action } = await inquirer.prompt<{ action: 'scaffold' | 'fill' }>([
     {
       type: 'list',
-      name: 'mode',
+      name: 'action',
       message: t('prompts.plan.mode'),
       choices: [
         { name: t('prompts.plan.modeScaffold'), value: 'scaffold' },
@@ -1621,109 +1255,69 @@ async function runInteractivePlan(): Promise<void> {
     }
   ]);
 
-  const { outputDir } = await inquirer.prompt<{ outputDir: string }>([
-    {
-      type: 'input',
-      name: 'outputDir',
-      message: t('commands.plan.options.output'),
-      default: defaultOutput
-    }
-  ]);
+  if (action === 'scaffold') {
+    // Scaffold: just create the template
+    const generator = new PlanGenerator();
+    ui.startSpinner(t('spinner.plan.creating'));
 
-  if (mode === 'fill') {
-    const { repoPath } = await inquirer.prompt<{ repoPath: string }>([
-      {
-        type: 'input',
-        name: 'repoPath',
-        message: t('prompts.plan.repoPath'),
-        default: process.cwd()
-      }
-    ]);
+    try {
+      const result = await generator.generatePlan({
+        planName,
+        summary: planSummary,
+        outputDir: defaults.outputDir,
+        verbose: false,
+        semantic: true,
+        projectPath: defaults.repoPath
+      });
 
-    // Use shared LLM prompt helper
-    const llmConfig = await promptLLMConfig(t, { defaultModel: DEFAULT_MODEL, skipIfConfigured: false });
-
-    const { dryRun } = await inquirer.prompt<{ dryRun: boolean }>([
-      {
-        type: 'confirm',
-        name: 'dryRun',
-        message: t('prompts.plan.dryRun'),
-        default: true
-      }
-    ]);
-
-    const { useLsp } = await inquirer.prompt<{ useLsp: boolean }>([
-      {
-        type: 'confirm',
-        name: 'useLsp',
-        message: t('prompts.plan.useLsp'),
-        default: true
-      }
-    ]);
-
-    // Show summary before execution
-    const advancedConfigSummary: ConfigSummary = {
-      operation: 'plan',
-      repoPath,
-      outputDir,
-      provider: llmConfig.provider,
-      model: llmConfig.model,
-      apiKeySource: llmConfig.autoDetected ? 'env' : llmConfig.apiKey ? 'provided' : 'none',
-      options: {
-        Goal: planSummary,
-        'File': `${planName}.md`,
-        LSP: useLsp,
-        'Dry Run': dryRun
-      }
-    };
-
-    displayConfigSummary(advancedConfigSummary, t);
-    const proceed = await promptConfirmProceed(t);
-
-    if (proceed) {
-      try {
-        const resolvedOutput = path.resolve(outputDir.trim() || defaultOutput);
-        await planService.scaffoldPlanIfNeeded(planName, resolvedOutput, {
-          summary: planSummary
-        });
-
-        await planService.fillPlan(planName, {
-          output: resolvedOutput,
-          repo: repoPath,
-          dryRun,
-          provider: llmConfig.provider,
-          model: llmConfig.model,
-          apiKey: llmConfig.apiKey,
-          lsp: useLsp
-        });
-      } catch (error) {
-        ui.displayError(t('errors.plan.fillFailed'), error as Error);
-      }
+      ui.updateSpinner(t('spinner.plan.created'), 'success');
+      ui.displaySuccess(t('success.plan.createdAt', { path: colors.accent(result.relativePath) }));
+    } catch (error) {
+      ui.updateSpinner(t('spinner.plan.creationFailed'), 'fail');
+      ui.displayError(t('errors.plan.creationFailed'), error as Error);
+    } finally {
+      ui.stopSpinner();
     }
     return;
   }
 
-  // Scaffold mode - use planSummary from goal input
-  const generator = new PlanGenerator();
-  ui.startSpinner(t('spinner.plan.creating'));
+  // Fill: use auto-detected LLM config
+  const llmConfig = await promptLLMConfig(t, { defaultModel: DEFAULT_MODEL, skipIfConfigured: true });
+  if (!llmConfig) {
+    return;
+  }
+
+
+  const configSummary: ConfigSummary = {
+    operation: 'plan',
+    repoPath: defaults.repoPath,
+    outputDir: defaults.outputDir,
+    provider: llmConfig.provider,
+    model: llmConfig.model,
+    apiKeySource: llmConfig.autoDetected ? 'env' : llmConfig.apiKey ? 'provided' : 'none',
+    options: {
+      Goal: planSummary,
+      'File': `${planName}.md`,
+      LSP: true,
+      'Dry Run': false
+    }
+  };
+
+  displayConfigSummary(configSummary, t);
 
   try {
-    const result = await generator.generatePlan({
-      planName,
-      outputDir: path.resolve(outputDir.trim() || defaultOutput),
-      summary: planSummary,
-      verbose: false,
-      semantic: true,
-      projectPath: path.resolve(outputDir.trim() || defaultOutput, '..')
+    await planService.scaffoldPlanIfNeeded(planName, defaults.outputDir, { summary: planSummary });
+    await planService.fillPlan(planName, {
+      output: defaults.outputDir,
+      repo: defaults.repoPath,
+      dryRun: false,
+      provider: llmConfig.provider,
+      model: llmConfig.model,
+      apiKey: llmConfig.apiKey,
+      lsp: true
     });
-
-    ui.updateSpinner(t('spinner.plan.created'), 'success');
-    ui.displaySuccess(t('success.plan.createdAt', { path: colors.accent(result.relativePath) }));
   } catch (error) {
-    ui.updateSpinner(t('spinner.plan.creationFailed'), 'fail');
-    ui.displayError(t('errors.plan.creationFailed'), error as Error);
-  } finally {
-    ui.stopSpinner();
+    ui.displayError(t('errors.plan.fillFailed'), error as Error);
   }
 }
 
@@ -1789,21 +1383,18 @@ async function runInteractiveSync(): Promise<void> {
   };
 
   displayConfigSummary(summary, t);
-  const proceed = await promptConfirmProceed(t);
 
-  if (proceed) {
-    try {
-      await syncService.run({
-        source: sourcePath,
-        mode: 'symlink',
-        preset: preset as any,
-        target,
-        force: false,
-        dryRun: false
-      });
-    } catch (error) {
-      ui.displayError(t('errors.sync.failed'), error as Error);
-    }
+  try {
+    await syncService.run({
+      source: sourcePath,
+      mode: 'symlink',
+      preset: preset as any,
+      target,
+      force: false,
+      dryRun: false
+    });
+  } catch (error) {
+    ui.displayError(t('errors.sync.failed'), error as Error);
   }
 }
 
@@ -1836,8 +1427,7 @@ async function createNewWorkflow(workflowService: WorkflowService): Promise<bool
         { name: t('prompts.workflow.scale.quick'), value: 'QUICK' },
         { name: t('prompts.workflow.scale.small'), value: 'SMALL' },
         { name: t('prompts.workflow.scale.medium'), value: 'MEDIUM' },
-        { name: t('prompts.workflow.scale.large'), value: 'LARGE' },
-        { name: t('prompts.workflow.scale.enterprise'), value: 'ENTERPRISE' }
+        { name: t('prompts.workflow.scale.large'), value: 'LARGE' }
       ],
       default: ''
     }
@@ -1862,7 +1452,14 @@ async function createNewWorkflow(workflowService: WorkflowService): Promise<bool
 
 async function runInteractiveWorkflow(): Promise<void> {
   const projectPath = process.cwd();
-  const workflowService = new WorkflowService(projectPath, getWorkflowDeps());
+  const workflowDeps: WorkflowServiceDependencies = {
+    ui: {
+      displaySuccess: (msg: string) => ui.displaySuccess(msg),
+      displayError: (msg: string, err?: Error) => ui.displayError(msg, err),
+      displayInfo: (title: string, detail?: string) => ui.displayInfo(title, detail || '')
+    }
+  };
+  const workflowService = new WorkflowService(projectPath, workflowDeps);
   const hasWorkflow = await workflowService.hasWorkflow();
 
   if (!hasWorkflow) {
@@ -2178,98 +1775,127 @@ async function runInteractiveSkills(): Promise<void> {
 async function runQuickSync(): Promise<void> {
   const projectPath = process.cwd();
 
-  // Step 1: Select components to sync
-  const { components } = await inquirer.prompt<{ components: string[] }>([
+  // Single prompt: sync all or customize?
+  const { syncMode } = await inquirer.prompt<{ syncMode: string }>([
     {
-      type: 'checkbox',
-      name: 'components',
-      message: t('prompts.quickSync.selectComponents'),
+      type: 'list',
+      name: 'syncMode',
+      message: t('prompts.quickSync.mode'),
       choices: [
-        { name: t('prompts.quickSync.components.agents'), value: 'agents', checked: true },
-        { name: t('prompts.quickSync.components.skills'), value: 'skills', checked: true },
-        { name: t('prompts.quickSync.components.docs'), value: 'docs', checked: true },
+        { name: t('prompts.quickSync.mode.syncAll'), value: 'all' },
+        { name: t('prompts.quickSync.mode.customize'), value: 'customize' },
+        { name: t('prompts.quickSync.mode.cancel'), value: 'cancel' },
       ],
     },
   ]);
 
-  if (components.length === 0) {
-    ui.displayWarning(t('prompts.quickSync.noComponentsSelected'));
-    return;
-  }
+  if (syncMode === 'cancel') return;
 
-  let agentTargets: string[] | undefined;
-  let skillTargets: string[] | undefined;
-  let docTargets: string[] | undefined;
+  let options: QuickSyncOptions;
 
-  // Step 2: If agents selected, choose targets
-  if (components.includes('agents')) {
-    const { targets } = await inquirer.prompt<{ targets: string[] }>([
+  if (syncMode === 'all') {
+    // Sync all with default targets
+    options = {
+      skipAgents: false,
+      skipSkills: false,
+      skipDocs: false,
+      agentTargets: ['claude', 'github'],
+      skillTargets: ['claude', 'gemini', 'codex'],
+      docTargets: ['cursor', 'claude', 'agents'],
+      force: false,
+      dryRun: false,
+      verbose: false,
+    };
+  } else {
+    // Customize: show the existing checkbox prompts
+    const { components } = await inquirer.prompt<{ components: string[] }>([
       {
         type: 'checkbox',
-        name: 'targets',
-        message: t('prompts.quickSync.selectAgentTargets'),
+        name: 'components',
+        message: t('prompts.quickSync.selectComponents'),
         choices: [
-          { name: '.claude/agents (Claude Code)', value: 'claude', checked: true },
-          { name: '.github/agents (GitHub Copilot)', value: 'github', checked: true },
-          { name: '.cursor/agents (Cursor AI)', value: 'cursor', checked: false },
-          { name: '.windsurf/agents (Windsurf/Codeium)', value: 'windsurf', checked: false },
-          { name: '.cline/agents (Cline)', value: 'cline', checked: false },
-          { name: '.continue/agents (Continue.dev)', value: 'continue', checked: false },
+          { name: t('prompts.quickSync.components.agents'), value: 'agents', checked: true },
+          { name: t('prompts.quickSync.components.skills'), value: 'skills', checked: true },
+          { name: t('prompts.quickSync.components.docs'), value: 'docs', checked: true },
         ],
       },
     ]);
-    agentTargets = targets.length > 0 ? targets : undefined;
-  }
 
-  // Step 3: If skills selected, choose targets
-  if (components.includes('skills')) {
-    const { targets } = await inquirer.prompt<{ targets: string[] }>([
-      {
-        type: 'checkbox',
-        name: 'targets',
-        message: t('prompts.quickSync.selectSkillTargets'),
-        choices: [
-          { name: '.claude/skills (Claude Code)', value: 'claude', checked: true },
-          { name: '.gemini/skills (Gemini CLI)', value: 'gemini', checked: true },
-          { name: '.codex/skills (Codex CLI)', value: 'codex', checked: true },
-        ],
-      },
-    ]);
-    skillTargets = targets.length > 0 ? targets : undefined;
-  }
+    if (components.length === 0) {
+      ui.displayWarning(t('prompts.quickSync.noComponentsSelected'));
+      return;
+    }
 
-  // Step 4: If docs selected, choose targets
-  if (components.includes('docs')) {
-    const { targets } = await inquirer.prompt<{ targets: string[] }>([
-      {
-        type: 'checkbox',
-        name: 'targets',
-        message: t('prompts.quickSync.selectDocTargets'),
-        choices: [
-          { name: '.cursorrules (Cursor AI)', value: 'cursor', checked: true },
-          { name: 'CLAUDE.md (Claude Code)', value: 'claude', checked: true },
-          { name: 'AGENTS.md (Universal)', value: 'agents', checked: true },
-          { name: '.windsurfrules (Windsurf)', value: 'windsurf', checked: false },
-          { name: '.clinerules (Cline)', value: 'cline', checked: false },
-          { name: 'CONVENTIONS.md (Aider)', value: 'aider', checked: false },
-        ],
-      },
-    ]);
-    docTargets = targets.length > 0 ? targets : undefined;
-  }
+    let agentTargets: string[] | undefined;
+    let skillTargets: string[] | undefined;
+    let docTargets: string[] | undefined;
 
-  // Build options based on selections
-  const options: QuickSyncOptions = {
-    skipAgents: !components.includes('agents'),
-    skipSkills: !components.includes('skills'),
-    skipDocs: !components.includes('docs'),
-    agentTargets,
-    skillTargets,
-    docTargets,
-    force: false,
-    dryRun: false,
-    verbose: false,
-  };
+    if (components.includes('agents')) {
+      const { targets } = await inquirer.prompt<{ targets: string[] }>([
+        {
+          type: 'checkbox',
+          name: 'targets',
+          message: t('prompts.quickSync.selectAgentTargets'),
+          choices: [
+            { name: '.claude/agents (Claude Code)', value: 'claude', checked: true },
+            { name: '.github/agents (GitHub Copilot)', value: 'github', checked: true },
+            { name: '.cursor/agents (Cursor AI)', value: 'cursor', checked: false },
+            { name: '.windsurf/agents (Windsurf/Codeium)', value: 'windsurf', checked: false },
+            { name: '.cline/agents (Cline)', value: 'cline', checked: false },
+            { name: '.continue/agents (Continue.dev)', value: 'continue', checked: false },
+          ],
+        },
+      ]);
+      agentTargets = targets.length > 0 ? targets : undefined;
+    }
+
+    if (components.includes('skills')) {
+      const { targets } = await inquirer.prompt<{ targets: string[] }>([
+        {
+          type: 'checkbox',
+          name: 'targets',
+          message: t('prompts.quickSync.selectSkillTargets'),
+          choices: [
+            { name: '.claude/skills (Claude Code)', value: 'claude', checked: true },
+            { name: '.gemini/skills (Gemini CLI)', value: 'gemini', checked: true },
+            { name: '.codex/skills (Codex CLI)', value: 'codex', checked: true },
+          ],
+        },
+      ]);
+      skillTargets = targets.length > 0 ? targets : undefined;
+    }
+
+    if (components.includes('docs')) {
+      const { targets } = await inquirer.prompt<{ targets: string[] }>([
+        {
+          type: 'checkbox',
+          name: 'targets',
+          message: t('prompts.quickSync.selectDocTargets'),
+          choices: [
+            { name: '.cursorrules (Cursor AI)', value: 'cursor', checked: true },
+            { name: 'CLAUDE.md (Claude Code)', value: 'claude', checked: true },
+            { name: 'AGENTS.md (Universal)', value: 'agents', checked: true },
+            { name: '.windsurfrules (Windsurf)', value: 'windsurf', checked: false },
+            { name: '.clinerules (Cline)', value: 'cline', checked: false },
+            { name: 'CONVENTIONS.md (Aider)', value: 'aider', checked: false },
+          ],
+        },
+      ]);
+      docTargets = targets.length > 0 ? targets : undefined;
+    }
+
+    options = {
+      skipAgents: !components.includes('agents'),
+      skipSkills: !components.includes('skills'),
+      skipDocs: !components.includes('docs'),
+      agentTargets,
+      skillTargets,
+      docTargets,
+      force: false,
+      dryRun: false,
+      verbose: false,
+    };
+  }
 
   const quickSyncService = new QuickSyncService({
     ui,
@@ -2278,29 +1904,113 @@ async function runQuickSync(): Promise<void> {
     defaultModel: DEFAULT_MODEL,
   });
 
-  const result = await quickSyncService.run(projectPath, options);
-
-  // If docs are outdated, ask if user wants to update
-  if (!result.docsUpdated) {
-    const stats = await quickSyncService.getStats(projectPath);
-    if (stats.daysOld) {
-      const { updateDocs } = await inquirer.prompt<{ updateDocs: boolean }>([
-        {
-          type: 'confirm',
-          name: 'updateDocs',
-          message: t('prompts.quickSync.updateDocs'),
-          default: true,
-        },
-      ]);
-
-      if (updateDocs) {
-        // Trigger fill with AI + LSP
-        await runInteractiveLlmFill();
-      }
-    }
-  }
+  await quickSyncService.run(projectPath, options);
 
   ui.displaySuccess(t('success.quickSync.complete'));
+}
+
+// ============================================================================
+// Reverse Quick Sync - Import from AI tool directories
+// ============================================================================
+
+async function runReverseSync(): Promise<void> {
+  const projectPath = process.cwd();
+
+  // Create service
+  const reverseSyncService = new ReverseQuickSyncService({
+    ui,
+    t,
+    version: VERSION,
+  });
+
+  // Step 1: Detect available tools
+  ui.startSpinner(t('prompts.reverseSync.detecting'));
+  const detection = await reverseSyncService.detect(projectPath);
+  ui.stopSpinner();
+
+  if (detection.summary.totalFiles === 0) {
+    ui.displayWarning(t('prompts.reverseSync.noFilesFound'));
+    return;
+  }
+
+  // Display detection summary
+  console.log('');
+  console.log(t('prompts.reverseSync.detected'));
+  console.log('');
+  for (const tool of detection.tools) {
+    if (tool.detected) {
+      const parts: string[] = [];
+      if (tool.counts.rules > 0) parts.push(`${tool.counts.rules} rules`);
+      if (tool.counts.agents > 0) parts.push(`${tool.counts.agents} agents`);
+      if (tool.counts.skills > 0) parts.push(`${tool.counts.skills} skills`);
+      console.log(`  ${colors.success('✓')} ${colors.primary(tool.displayName)} (${parts.join(', ')})`);
+    }
+  }
+  console.log('');
+
+  // Step 2: Select components to import
+  const { components } = await inquirer.prompt<{ components: string[] }>([
+    {
+      type: 'checkbox',
+      name: 'components',
+      message: t('prompts.reverseSync.selectComponents'),
+      choices: [
+        {
+          name: `Rules (${detection.summary.totalRules} files)`,
+          value: 'rules',
+          checked: detection.summary.totalRules > 0,
+          disabled: detection.summary.totalRules === 0,
+        },
+        {
+          name: `Agents (${detection.summary.totalAgents} files)`,
+          value: 'agents',
+          checked: detection.summary.totalAgents > 0,
+          disabled: detection.summary.totalAgents === 0,
+        },
+        {
+          name: `Skills (${detection.summary.totalSkills} files)`,
+          value: 'skills',
+          checked: detection.summary.totalSkills > 0,
+          disabled: detection.summary.totalSkills === 0,
+        },
+      ],
+    },
+  ]);
+
+  if (components.length === 0) {
+    ui.displayWarning(t('prompts.reverseSync.noComponentsSelected'));
+    return;
+  }
+
+  // Step 3: Select merge strategy
+  const { mergeStrategy } = await inquirer.prompt<{ mergeStrategy: MergeStrategy }>([
+    {
+      type: 'list',
+      name: 'mergeStrategy',
+      message: t('prompts.reverseSync.mergeStrategy'),
+      choices: [
+        { name: t('prompts.reverseSync.strategy.skip'), value: 'skip' },
+        { name: t('prompts.reverseSync.strategy.overwrite'), value: 'overwrite' },
+        { name: t('prompts.reverseSync.strategy.merge'), value: 'merge' },
+        { name: t('prompts.reverseSync.strategy.rename'), value: 'rename' },
+      ],
+    },
+  ]);
+
+  // Step 4: Run import
+  const result = await reverseSyncService.run(projectPath, {
+    skipRules: !components.includes('rules'),
+    skipAgents: !components.includes('agents'),
+    skipSkills: !components.includes('skills'),
+    mergeStrategy,
+    verbose: false,
+  });
+
+  // Display result
+  const totalImported = result.rulesImported + result.agentsImported + result.skillsImported;
+  if (totalImported > 0) {
+    ui.displaySuccess(t('success.reverseSync.complete', { count: totalImported }));
+  }
 }
 
 // ============================================================================
@@ -2495,32 +2205,37 @@ This agent should be invoked when working on tasks related to ${finalRole}.
 // Settings - Submenu for configuration
 // ============================================================================
 
-type SettingsAction = 'language' | 'back';
-
 async function runSettings(): Promise<void> {
-  let continueMenu = true;
-  while (continueMenu) {
-    const { action } = await inquirer.prompt<{ action: SettingsAction }>([
+  // Directly show language selection (the only setting currently)
+  await selectLocale(true);
+}
+
+async function renderStartupSplash(
+  directory: string,
+  titleOverride?: string,
+  modelOverride?: string
+): Promise<void> {
+  const defaults = await detectSmartDefaults(directory);
+
+  console.log('');
+  console.log(renderSplashScreen({
+    title: titleOverride || packageNameToDisplayName(PACKAGE_NAME),
+    version: VERSION,
+    lines: [
       {
-        type: 'list',
-        name: 'action',
-        message: t('prompts.settings.action'),
-        choices: [
-          { name: t('prompts.settings.choice.language'), value: 'language' },
-          { name: t('prompts.settings.choice.back'), value: 'back' },
-        ],
+        label: t('ui.splash.modelLabel'),
+        value: modelOverride || defaults.model || DEFAULT_MODEL,
+        note: defaults.provider && defaults.apiKeyConfigured
+          ? t('ui.splash.modelConfigured', { provider: defaults.provider })
+          : t('ui.splash.modelDefault')
       },
-    ]);
-
-    if (action === 'back') {
-      continueMenu = false;
-      break;
-    }
-
-    if (action === 'language') {
-      await selectLocale(true);
-    }
-  }
+      {
+        label: t('ui.splash.directoryLabel'),
+        value: formatSplashDirectory(directory)
+      }
+    ]
+  }));
+  console.log('');
 }
 
 function filterOutLocaleArgs(args: string[]): string[] {

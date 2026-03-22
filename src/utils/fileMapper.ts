@@ -2,6 +2,7 @@ import * as fs from 'fs-extra';
 import * as path from 'path';
 import { glob } from 'glob';
 import { FileInfo, RepoStructure, TopLevelDirectoryStats } from '../types';
+import { GitIgnoreManager } from './gitignoreManager';
 
 export class FileMapper {
   private excludePatterns: string[] = [
@@ -17,8 +18,11 @@ export class FileMapper {
     '**/.DS_Store'
   ];
 
+  private readonly gitIgnoreManager: GitIgnoreManager;
+
   constructor(customExcludes: string[] = []) {
     this.excludePatterns = [...this.excludePatterns, ...customExcludes];
+    this.gitIgnoreManager = new GitIgnoreManager({ extraPatterns: customExcludes });
   }
 
   private async loadGitignorePatterns(repoPath: string): Promise<string[]> {
@@ -56,7 +60,10 @@ export class FileMapper {
       allFiles.push(...files);
     }
 
-    const uniqueFiles = [...new Set(allFiles)];
+    // Apply .gitignore filtering on top of glob excludes
+    const filteredFiles = this.gitIgnoreManager.filterPaths(allFiles);
+
+    const uniqueFiles = [...new Set(filteredFiles)];
     const fileInfos: FileInfo[] = [];
     const directories: FileInfo[] = [];
     let totalSize = 0;

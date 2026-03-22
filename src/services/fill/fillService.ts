@@ -3,7 +3,15 @@ import * as fs from 'fs-extra';
 import { glob } from 'glob';
 
 import { colors, symbols, typography } from '../../utils/theme';
-import { removeFrontMatter } from '../../utils/frontMatter';
+import {
+  removeFrontMatter,
+  parseFrontMatter,
+  parseScaffoldFrontMatter,
+  addFrontMatter,
+  getDocumentName,
+  isScaffoldContent,
+  needsFill,
+} from '../../utils/frontMatter';
 
 import type { CLIInterface } from '../../utils/cliUI';
 import type { TranslateFn } from '../../utils/i18n';
@@ -17,6 +25,11 @@ import type { LLMConfig, RepoStructure, UsageStats } from '../../types';
 import type { BaseLLMClient } from '../baseLLMClient';
 import { resolveLlmConfig } from '../shared/llmConfig';
 import type { AgentType as GeneratorAgentType } from '../../generators/agents/agentTypes';
+import {
+  getScaffoldStructure,
+  serializeStructureForAI,
+  type ScaffoldStructure,
+} from '../../generators/shared/scaffoldStructures';
 
 export interface FillCommandFlags {
   output?: string;
@@ -36,6 +49,8 @@ export interface FillCommandFlags {
   languages?: string | string[];
   /** Enable LSP for deeper semantic analysis (off by default for fill) */
   useLsp?: boolean;
+  /** Force re-fill of already filled files */
+  force?: boolean;
 }
 
 interface ResolvedFillOptions {
@@ -56,6 +71,7 @@ interface ResolvedFillOptions {
   useSemanticContext: boolean;
   languages: string[];
   useLSP: boolean;
+  force: boolean;
 }
 
 interface TargetFile {
@@ -63,6 +79,10 @@ interface TargetFile {
   relativePath: string;
   isAgent: boolean;
   content: string;
+  /** Document name extracted from frontmatter */
+  documentName?: string;
+  /** Scaffold structure for AI context (v2 scaffold system) */
+  scaffoldStructure?: ScaffoldStructure;
 }
 
 interface FillServiceDependencies {
@@ -142,7 +162,8 @@ export class FillService {
       useAgents: rawOptions.useAgents ?? true, // Enable agents by default
       useSemanticContext: rawOptions.semantic !== false, // Semantic mode enabled by default
       languages: parsedLanguages,
-      useLSP: Boolean(rawOptions.useLsp) // LSP off by default for fill
+      useLSP: Boolean(rawOptions.useLsp), // LSP off by default for fill
+      force: Boolean(rawOptions.force),
     };
 
     this.displayPromptSource(scaffoldPrompt.path, scaffoldPrompt.source);
@@ -224,9 +245,14 @@ export class FillService {
         return { file: target.relativePath, status: 'skipped', message: this.t('messages.fill.emptyResponse') };
       }
 
-      // Remove front matter from filled content (status: unfilled marker)
-      const cleanContent = removeFrontMatter(updatedContent);
-      await fs.writeFile(target.fullPath, this.ensureTrailingNewline(cleanContent));
+      // Preserve frontmatter with updated status instead of destroying it
+      const cleanBody = removeFrontMatter(updatedContent);
+      const { frontMatter: existingFm } = parseFrontMatter(target.content);
+      const updatedFm = existingFm
+        ? { ...existingFm, status: 'filled' as const }
+        : { status: 'filled' as const, generated: new Date().toISOString().split('T')[0] };
+      const finalContent = addFrontMatter(cleanBody, updatedFm);
+      await fs.writeFile(target.fullPath, this.ensureTrailingNewline(finalContent));
       this.ui.updateSpinner(this.t('spinner.fill.updated', { path: target.relativePath }), 'success');
       return { file: target.relativePath, status: 'updated' };
     } catch (error) {
@@ -250,6 +276,11 @@ export class FillService {
     try {
       let updatedContent: string;
 
+      // Serialize scaffold structure for AI context (if available)
+      const structureContext = target.scaffoldStructure
+        ? serializeStructureForAI(target.scaffoldStructure)
+        : undefined;
+
       if (target.isAgent) {
         // Use PlaybookAgent for agent files
         const agentType = this.extractAgentTypeFromPath(target.relativePath);
@@ -260,7 +291,8 @@ export class FillService {
           existingContext: target.content,
           callbacks,
           useSemanticContext: options.useSemanticContext,
-          useLSP: options.useLSP
+          useLSP: options.useLSP,
+          scaffoldStructure: structureContext,
         });
         updatedContent = result.text;
       } else {
@@ -272,7 +304,8 @@ export class FillService {
           context: target.content,
           callbacks,
           useSemanticContext: options.useSemanticContext,
-          useLSP: options.useLSP
+          useLSP: options.useLSP,
+          scaffoldStructure: structureContext,
         });
         updatedContent = result.text;
       }
@@ -283,9 +316,14 @@ export class FillService {
         return { file: target.relativePath, status: 'skipped', message: this.t('messages.fill.emptyResponse') };
       }
 
-      // Remove front matter from filled content (status: unfilled marker)
-      const cleanContent = removeFrontMatter(updatedContent);
-      await fs.writeFile(target.fullPath, this.ensureTrailingNewline(cleanContent));
+      // Preserve frontmatter with updated status instead of destroying it
+      const cleanBody = removeFrontMatter(updatedContent);
+      const { frontMatter: existingFm } = parseFrontMatter(target.content);
+      const updatedFm = existingFm
+        ? { ...existingFm, status: 'filled' as const }
+        : { status: 'filled' as const, generated: new Date().toISOString().split('T')[0] };
+      const finalContent = addFrontMatter(cleanBody, updatedFm);
+      await fs.writeFile(target.fullPath, this.ensureTrailingNewline(finalContent));
       console.log(''); // Spacing after agent output
       this.ui.displaySuccess(this.t('spinner.fill.updated', { path: target.relativePath }));
       return { file: target.relativePath, status: 'updated' };
@@ -336,10 +374,39 @@ export class FillService {
     const targets: TargetFile[] = [];
 
     for (const fullPath of candidates) {
+      // Skip already-filled files unless force is set
+      if (!options.force && !(await needsFill(fullPath))) {
+        continue;
+      }
+
       const content = await fs.readFile(fullPath, 'utf-8');
       const isAgent = fullPath.includes(`${path.sep}agents${path.sep}`);
       const relativePath = path.relative(options.outputDir, fullPath);
-      targets.push({ fullPath, relativePath, isAgent, content });
+
+      // Extract document name from frontmatter and load scaffold structure
+      const documentName = getDocumentName(content);
+      let scaffoldStructure: ScaffoldStructure | undefined;
+
+      if (documentName) {
+        scaffoldStructure = getScaffoldStructure(documentName);
+      }
+
+      // For agents, try to extract from filename if not in frontmatter
+      if (!documentName && isAgent) {
+        const filename = path.basename(fullPath, '.md');
+        if (filename !== 'README') {
+          scaffoldStructure = getScaffoldStructure(filename);
+        }
+      }
+
+      targets.push({
+        fullPath,
+        relativePath,
+        isAgent,
+        content,
+        documentName: documentName || undefined,
+        scaffoldStructure,
+      });
 
       if (options.limit && targets.length >= options.limit) {
         break;

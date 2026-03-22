@@ -12,10 +12,14 @@ import { GetCodebaseMapInputSchema, type GetCodebaseMapInput, type GetCodebaseMa
 import type { CodebaseMap } from '../../../generators/documentation';
 
 export const getCodebaseMapTool = tool({
-  description: 'Get codebase map data (structure, symbols, architecture) from the pre-generated JSON. Use specific sections to reduce token usage.',
+  description: 'Get codebase map data (structure, symbols, architecture, keyFiles, navigation) from the pre-generated JSON. Use specific sections to reduce token usage. Available sections: all, stack, structure, architecture, symbols, symbols.*, publicAPI, dependencies, stats, keyFiles, navigation',
   inputSchema: GetCodebaseMapInputSchema,
   execute: async (input: GetCodebaseMapInput): Promise<GetCodebaseMapOutput> => {
-    const repoPath = input.repoPath || process.cwd();
+    if (!input.repoPath) {
+      throw new Error('repoPath is required for getCodebaseMap');
+    }
+    const repoPath = input.repoPath;
+
     const section = input.section || 'all';
 
     try {
@@ -79,6 +83,10 @@ function extractSection(map: CodebaseMap, section: string): unknown {
       return map.dependencies;
     case 'stats':
       return map.stats;
+    case 'keyFiles':
+      return map.keyFiles ?? [];
+    case 'navigation':
+      return map.navigation ?? {};
     default:
       return map;
   }

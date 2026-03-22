@@ -4,6 +4,596 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [Unreleased]
+
+### Added
+
+- **GitIgnore Integration in FileMapper**: Automatic `.gitignore` respect prevents stack overflow in large repositories
+  - New `GitIgnoreManager` class with spec-compliant `.gitignore` parsing via `ignore` npm package
+  - O(1) cached lookups with hierarchical `.gitignore` loading from repo root
+  - Graceful fallback to existing hardcoded excludes when no `.gitignore` found
+  - Integrated into `FileMapper.getRepoStructure()` before glob scanning
+
+- **Path Traversal Protection for MCP Server**: Security hardening for all file operations
+  - New `PathValidator` class with null byte, URL-encoding, and traversal detection
+  - `SecurityError` class with forensics metadata (attempted path, attack type)
+  - Validates `filePath`, `rootPath`, and `cwd` params in `wrapWithActionLogging()` before tool execution
+
+- **Semantic Context Cache**: In-memory caching for `SemanticContextBuilder` output
+  - TTL-based expiration (default 5 minutes) with directory mtime invalidation
+  - Per-repo and global invalidation methods
+  - Integrated into MCP `registerResources()` context handler
+
+- **CLI Modular Architecture**: Extracted command groups from monolithic `index.ts`
+  - New `CLIDependencies` interface for dependency injection
+  - Skill commands (5 subcommands) extracted to `src/cli/commands/skillCommands.ts`
+  - Workflow commands (6 subcommands) extracted to `src/cli/commands/workflowCommands.ts`
+  - `index.ts` reduced from 2818 to 2478 lines
+
+### Fixed
+
+- **Frontmatter-Safe Fill Pipeline**: 100% preservation of YAML frontmatter during fill operations
+  - `needsFill()` now reads 15 lines (was 3) to detect `status:` in v2 scaffold format
+  - `processTarget()` and `processTargetWithAgent()` now preserve frontmatter with `status: filled` update
+  - `collectTargets()` filters by `needsFill()` with `--force` override to prevent re-filling
+  - Added `force` option to `FillCommandFlags` and `ResolvedFillOptions`
+
+### Security
+
+- Path traversal attacks via `../`, URL encoding (`%2e%2e`), and null bytes now blocked in MCP tool handlers
+- Audit logging for security events with forensics metadata
+
+### Performance
+
+- Context generation 80-95% faster for unchanged files via semantic caching
+- Eliminated stack overflow crashes in repositories with large unignored directories
+
+### Technical Details
+
+#### New Files
+- `src/utils/gitignoreManager.ts` — GitIgnoreManager with hierarchical `.gitignore` loading
+- `src/utils/gitignoreManager.test.ts` — 18 tests
+- `src/utils/pathSecurity.ts` — PathValidator with comprehensive sanitization
+- `src/utils/pathSecurity.test.ts` — 18 tests
+- `src/services/semantic/contextCache.ts` — In-memory TTL cache with mtime invalidation
+- `src/services/semantic/contextCache.test.ts` — 13 tests
+- `src/cli/types.ts` — CLIDependencies interface
+- `src/cli/commands/index.ts` — Barrel export
+- `src/cli/commands/skillCommands.ts` — Extracted skill subcommands
+- `src/cli/commands/workflowCommands.ts` — Extracted workflow subcommands
+- `src/tests/integrity/postRefactoringIntegrity.test.ts` — 26 integration tests
+
+#### Modified Files
+- `src/utils/fileMapper.ts` — GitIgnoreManager integration
+- `src/utils/frontMatter.ts` — `needsFill()` increased to 15 lines
+- `src/services/fill/fillService.ts` — Frontmatter preservation, `force` option, `needsFill` filtering
+- `src/services/mcp/mcpServer.ts` — PathValidator + ContextCache integration
+- `src/index.ts` — Replaced inline skill/workflow commands with modular imports
+- `package.json` — Added `ignore` dependency
+
+## [0.8.0]
+
+### Added
+
+- **Themed Inquirer Prompts**: Applied custom theme to all interactive prompts via new `themedPrompt.ts` wrappers (`themedSelect`, `themedConfirm`, `themedInput`, `themedPassword`, `themedCheckbox`), replacing raw inquirer calls with consistently styled interactions using the project's two-tone color scheme.
+
+- **"View Pending Files" Option**: When the CLI detects unfilled scaffold files, users can now see which specific files need content before deciding to fill them.
+
+- **Smart Defaults Transparency**: The interactive flow now displays detected project information on startup (e.g., "Detected: TypeScript project, openrouter provider configured") instead of silently using auto-detected values.
+
+- **API Key Format Validation**: Lightweight format checks warn users when an API key doesn't match the expected prefix for a provider (e.g., `sk-` for OpenAI, `sk-ant-` for Anthropic). Non-blocking warnings only.
+
+- **"Back" Navigation in Prompt Flows**: Added escape options in `promptAnalysisOptions()` and `promptLLMConfig()` so users can return to the previous menu instead of being forced through multi-step flows.
+
+- **Comprehensive .context Content**: Rewrote all scaffolding files with project-specific content:
+  - 4 documentation guides (project-overview, development-workflow, testing-strategy, tooling)
+  - 7 agent playbooks with codebase-specific workflows and file references
+  - 10 skill files (repurposed api-design to MCP Tool Design)
+  - 3 QA guides (getting-started, project-structure, error-handling)
+  - 1 development plan (simplify-interactive-cli)
+
+- **Skills System**: Full skill scaffolding exported to `.claude/skills/`, `.gemini/skills/`, `.codex/skills/`
+
+- **Multi-tool Context Export**: Context now syncs to Claude Code, Cursor, GitHub Copilot, Codex, Windsurf, and Gemini
+
+### Fixed
+
+- **`needsFill()` false positives**: Fixed bug where `needsFill()` matched `status: unfilled` in document body content (e.g., code examples in agent playbooks) instead of only checking the YAML frontmatter block. The function now parses only the frontmatter between `---` delimiters.
+
+- **`configSummary` i18n**: `displayConfigSummary()` now uses the `_t()` translation function instead of hardcoded English labels ("Config:", "Options:", "Yes", "No").
+
+- **Missing i18n key**: Added `agent.type.skill` translation key (en + pt-BR) that was referenced but undefined.
+
+### Removed
+
+- **Irrelevant QA docs**: Removed `api-endpoints.md` (no REST API), `deployment.md` (npm package, not deployed service), and `testing.md` (redundant with `testing-strategy.md`).
+
+## [0.7.1]
+
+### Included Pull Requests
+
+- [#31](https://github.com/vinilana/ai-coders-context/pull/31) - fix: exclude venv from semantic analysis
+  - Excludes `venv/` and `.venv/` from semantic analysis by default to avoid noisy Python environment paths.
+  - Persists user-defined `exclude` patterns during `init`, so `fillSingle` uses project-specific exclusions.
+  - Aligns semantic analysis to shared default exclude patterns for consistent behavior across tools.
+- [#23](https://github.com/vinilana/ai-coders-context/pull/23) - [Fix] Auto-fill files without LLMs
+  - Adds project-type-aware filtering so generated scaffolding better matches CLI, web, backend, and other stacks.
+  - Introduces static `defaultContent` across docs, agents, and skills, enabling usable output without LLM enhancement.
+  - Replaces placeholder scaffold content with practical starter templates.
+
+### Added
+
+- **Project Type Filtering in InitService**: Scaffolds are now automatically filtered based on detected project type
+  - Uses `StackDetector` and `classifyProject` to determine project type (cli, web-frontend, web-backend, full-stack, mobile, library, monorepo, desktop)
+  - Passes `filteredDocs` and `filteredAgents` to generators based on project classification
+  - CLI projects get core scaffolds only; web projects get additional architecture, security, and specialist agents
+  - Graceful fallback to all scaffolds if classification fails
+
+- **Static Default Content for Scaffolds**: All scaffolds now include useful template content out-of-the-box
+  - New `defaultContent` field in `ScaffoldSection` type provides static content when not autoFilled
+  - Serialization uses `defaultContent` directly instead of placeholder text ("_Content to be added._")
+  - Works immediately without requiring LLM enhancement or semantic analysis
+
+- **Agent Playbook Default Content**: All 14 agent playbooks now include comprehensive static content
+  - **Mission** — Clear description of agent purpose and when to engage
+  - **Responsibilities** — Concrete list of tasks the agent handles
+  - **Best Practices** — Guidelines for effective agent operation
+  - **Collaboration Checklist** — Step-by-step workflow with checkboxes
+  - Agents: code-reviewer, bug-fixer, feature-developer, refactoring-specialist, test-writer, documentation-writer, performance-optimizer, security-auditor, backend-specialist, frontend-specialist, architect-specialist, devops-specialist, database-specialist, mobile-specialist
+
+- **Documentation Default Content**: 8 core documentation templates now include useful starter content
+  - **project-overview.md** — Quick facts, entry points, technology stack, getting started checklist
+  - **development-workflow.md** — Branching model, local development commands, code review expectations
+  - **testing-strategy.md** — Test types, running tests, quality gates, troubleshooting
+  - **architecture.md** — System overview, layers, patterns table, diagrams placeholder
+  - **tooling.md** — Required tools, automation commands, IDE setup recommendations
+  - **security.md** — Authentication, secrets management, compliance checklist
+  - **glossary.md** — Type definitions, enums, core terms, acronyms table
+  - **data-flow.md** — Module dependencies, service layer, high-level flow diagram
+
+- **Skill Default Content**: All 10 built-in skills now include comprehensive static content
+  - **When to Use** — Clear activation triggers for each skill
+  - **Instructions** — Step-by-step execution guide
+  - **Examples** — Concrete, copy-pasteable examples
+  - **Guidelines** — Best practices for effective use
+  - Skills: commit-message, pr-review, code-review, test-generation, documentation, refactoring, bug-investigation, feature-breakdown, api-design, security-audit
+
+### Changed
+
+- **Scaffold Generation**: Scaffolds now generate with useful content instead of empty placeholders
+  - Previously: `_Content to be added._` with guidance comments
+  - Now: Practical template content that works for any project type
+  - AutoFill still enhances with project-specific content when semantic analysis is available
+
+### Fixed
+
+- **Exclude Python virtual environments from semantic analysis by default**
+  - Added `venv/` and `.venv/` to default exclude patterns
+  - Unified `SemanticContextBuilder` to use shared default exclude patterns
+  - Persisted user-provided `exclude` patterns from `init` into `.context/config.json` so `fillSingle` respects them
+
+### Technical Details
+
+#### Modified Files
+- `src/services/init/initService.ts` — Added project type detection and scaffold filtering
+- `src/generators/shared/structures/types.ts` — Added `defaultContent` field to `ScaffoldSection`
+- `src/generators/shared/structures/serialization.ts` — Updated to use `defaultContent` when available
+- `src/generators/shared/structures/agents/factory.ts` — Added `AgentDefaultContent` interface and section mapping
+- `src/generators/shared/structures/agents/definitions.ts` — Added default content for all 14 agents
+- `src/generators/shared/structures/skills/factory.ts` — Added `SkillDefaultContent` interface and section mapping
+- `src/generators/shared/structures/skills/definitions.ts` — Added default content for all 10 skills
+- `src/generators/shared/structures/documentation/projectOverview.ts` — Added default content
+- `src/generators/shared/structures/documentation/workflow.ts` — Added default content
+- `src/generators/shared/structures/documentation/testing.ts` — Added default content
+- `src/generators/shared/structures/documentation/architecture.ts` — Added default content
+- `src/generators/shared/structures/documentation/tooling.ts` — Added default content
+- `src/generators/shared/structures/documentation/security.ts` — Added default content
+- `src/generators/shared/structures/documentation/glossary.ts` — Added default content
+- `src/generators/shared/structures/documentation/dataFlow.ts` — Added default content
+- `src/services/semantic/types.ts` — Added `venv/` and `.venv/` to default exclude patterns
+- `src/services/semantic/contextBuilder.ts` — Uses shared default exclude patterns in semantic analysis
+- `src/services/ai/tools/initializeContextTool.ts` — Persists user exclude patterns in `.context/config.json`
+- `src/services/ai/tools/fillScaffoldingTool.ts` — Applies persisted exclude patterns during `fillSingle`
+
+## [0.7.0]
+
+### Added
+
+- **Interactive Mode Environment Prompt**: Ask user before loading `.env` file in interactive mode
+  - Prompts "Load environment variables from .env file?" at startup
+  - Default is No for explicit/secure approach
+  - Command-line mode still loads `.env` automatically (no change)
+  - MCP mode continues to skip `.env` loading (existing behavior)
+
+- **MCP Install Command**: New `mcp:install` CLI command for easy MCP server configuration
+  - Automatically configures ai-context MCP server in AI tools (Claude Code, Cursor, Windsurf, Cline, Continue.dev)
+  - Interactive mode with tool detection and selection
+  - Supports global (home directory) and local (project directory) installation
+  - Merges with existing MCP configurations without overwriting
+  - Dry-run mode for previewing changes
+  - Bilingual support (English and Portuguese)
+
+- **Gateway Tools Consolidation**: Unified MCP tools into 9 focused tools (5 gateways + 4 dedicated workflow tools)
+  - `explore` - File and code exploration (read, list, analyze, search, getStructure)
+  - `context` - Context scaffolding and semantic context (check, init, fill, fillSingle, listToFill, getMap, buildSemantic, scaffoldPlan)
+  - `plan` - Plan management and execution tracking (link, getLinked, getDetails, getForPhase, updatePhase, recordDecision, updateStep, getStatus, syncMarkdown, commitPhase)
+  - `agent` - Agent orchestration and discovery (discover, getInfo, orchestrate, getSequence, getDocs, getPhaseDocs, listTypes)
+  - `skill` - Skill management (list, getContent, getForPhase, scaffold, export, fill)
+  - `sync` - Import/export synchronization (exportRules, exportDocs, exportAgents, exportContext, exportSkills, reverseSync, importDocs, importAgents, importSkills)
+  - `workflow-init` - Initialize PREVC workflow (creates .context/workflow/)
+  - `workflow-status` - Get current workflow status
+  - `workflow-advance` - Advance to next phase
+  - `workflow-manage` - Manage handoffs, collaboration, documents, gates
+  - Standardized response utilities and shared context across all handlers
+  - Improved organization, discoverability, and reduced cognitive load
+
+- **MCP Export Tools**: New granular export tools for docs, agents, and skills
+  - `exportDocs` - Export documentation from `.context/docs/` with README indexing mode
+  - `exportAgents` - Export agents from `.context/agents/` (symlink by default)
+  - `exportContext` - Unified export of docs, agents, and skills in one operation
+
+- **MCP Import Tools**: Individual import tools for each content type
+  - `importDocs` - Import documentation from AI tool directories into `.context/docs/`
+  - `importAgents` - Import agents from AI tool directories into `.context/agents/`
+  - `importSkills` - Import skills from AI tool directories into `.context/skills/`
+
+- **README Index Mode**: New `indexMode` option for docs export
+  - `readme` (default) - Export only README.md files as indices
+  - `all` - Export all matching files (previous behavior)
+  - Cleaner exports that reference documentation indices
+
+- **Content Type Registry**: Extensible registry for future content types
+  - `ContentTypeRegistry` in `src/services/shared/contentTypeRegistry.ts`
+  - Supports docs, agents, skills, plans
+  - Easy addition of new content types (prompts, workflows, etc.)
+
+- **Unified Context Export Service**: Orchestrates export of all content types
+  - `ContextExportService` combines docs, agents, and skills export
+  - Configurable skip options for each content type
+  - Consistent error handling and reporting
+
+- **MCP Response Optimization**: New `skipContentGeneration` option for `initializeContext`
+  - Reduces response size from ~10k tokens to ~500 tokens
+  - Enables two-phase workflow: scaffold first, fill on-demand
+  - Default `true` for MCP to reduce context usage
+  - Use `fillSingleFile` or `fillScaffolding` tools to generate content when needed
+
+- **Workflow Gates System**: Comprehensive gate checking for phase transitions
+  - `require_plan` gate - Enforces plan creation before P → R transition
+  - `require_approval` gate - Requires plan approval before R → E transition
+  - Automatic gate settings based on project scale (QUICK, SMALL, MEDIUM, LARGE, ENTERPRISE)
+  - Custom error types for gate violations (`WorkflowGateError`)
+  - New `getGates` action to check current gate status
+  - Unit tests for gate checking logic
+
+- **Workflow Autonomous Mode**: Toggle autonomous execution for AI agents
+  - `setAutonomous` action to enable/disable autonomous mode
+  - Autonomous mode bypasses certain gates for faster iteration
+  - Tracks reason for mode changes in workflow status
+
+- **Execution History Tracking**: Detailed action logging throughout workflow lifecycle
+  - `ExecutionHistory` structure tracks all workflow actions
+  - Records phase starts, completions, plan linking, step execution
+  - `archive_previous` option for workflow initialization (archive vs delete existing)
+  - Methods to archive or clear plans and workflows
+
+- **Plan Execution Management**: Step-level tracking and synchronization
+  - `updateStep` action for updating individual step status
+  - `getStatus` action for retrieving plan execution status
+  - `syncMarkdown` action to sync tracking data back to plan markdown files
+  - Detailed interfaces for step execution (`StepExecution`) and phase tracking (`PhaseExecution`)
+
+- **Git Integration for Plans**: Commit completed phases directly from MCP
+  - `commitPhase` action creates git commits for completed workflow phases
+  - Optional co-authoring support with `coAuthor` parameter
+  - Configurable staging patterns with `stagePatterns` (default: `.context/**`)
+  - Dry-run mode for previewing commits
+  - Commit tracking records hash and timestamp for each phase
+
+- **Breadcrumb Logging**: Step-level execution trails for debugging
+  - Enhanced `PlanLinker` with breadcrumb trail generation
+  - `generateResumeContext` provides step-level context for session resumption
+  - Actions tracked: step_started, step_completed, step_skipped
+  - Improves AI agent ability to resume interrupted workflows
+
+- **V2 Scaffold System**: New scaffold generation architecture
+  - Frontmatter-only files that define structure without content
+  - `scaffoldStructure` context passed to AI agents for content generation
+  - Centralized scaffold structure definitions in `scaffoldStructures.ts`
+  - Supports documentation, agents, and skills scaffolding
+  - Improved validation and serialization of scaffold structures
+  - Deprecated legacy templates in favor of new system
+
+- **Fill Tool Enhancements**: Better context for content generation
+  - `fillSingleFile` and `fillScaffolding` exports from scaffolding tools now include scaffold structure context
+  - Semantic context integrated into fill instructions
+  - Removed deprecated content generation functions
+  - Enhanced error handling and user guidance
+
+- **Q&A Service**: Question and answer generation from codebase (via MCP context gateway)
+  - `QAService` for generating and searching Q&A entries
+  - `generateQA` action in context gateway creates Q&A files from codebase analysis
+  - `searchQA` action for semantic search over generated Q&A
+  - Utilizes pre-computed codebase maps when available
+
+- **Topic & Pattern Detection**: Automatic detection of functional patterns (via MCP context gateway)
+  - `TopicDetector` identifies capabilities in codebase
+  - Detects: authentication, database access, API endpoints, caching, messaging, etc.
+  - `detectPatterns` and `getFlow` actions provide pattern analysis
+  - Used to generate contextually relevant Q&A and architectural insights
+
+- **Context Metrics Service**: Usage tracking for context tools (via MCP metrics gateway)
+  - Tracks context tool usage and file reads
+  - Provides insights into pre-computed context effectiveness
+  - Guides optimization of codebase map generation
+  - Accessible via `metrics` gateway with tracking and reporting actions
+
+- **Enhanced Tool Status**: Improved response structures
+  - New `incomplete` status for tracking pending actions
+  - `instruction` field with clear next-step guidance
+  - `pendingWrites` replaces `requiredActions` for clarity
+  - `checklist` field for actionable task lists
+
+- **Scaffold Enhancement Prompt**: Consistent MCP enhancement instructions across all scaffolding operations
+  - New `MCP_SCAFFOLD_ENHANCEMENT_PROMPT` constant for standardized AI guidance
+  - New `createScaffoldResponse()` helper ensures all scaffold responses include enhancement instructions
+  - `_actionRequired`, `_status: "incomplete"`, and `_warning` signals for AI agent awareness
+  - `enhancementPrompt` field with clear workflow steps
+  - `nextSteps` array with actionable instructions
+  - `pendingEnhancement` list of files requiring content
+  - Applied to: `context init` and `scaffoldPlan` MCP actions
+  - Ensures AI agents always receive instructions to enhance scaffolding via MCP tools
+
+### Changed
+
+- **Context Initialization Simplified**: `.context` folder creation now uses simple path logic instead of complex detection
+  - `.context` is created in the specified path or current working directory
+  - Cleaner, more predictable behavior without hidden traversal logic
+  - Internal complexity reduced from 496 lines to ~20 lines
+  - Public APIs remain unchanged - static factory methods (`WorkflowService.create()`, `PlanLinker.create()`) are preserved
+  - Backwards compatibility maintained for existing code
+
+- **MCP Action Logging**: Logs every MCP tool invocation to `.context/workflow/actions.jsonl` with sanitized metadata for auditability.
+
+- **Phase Orchestration Skills**: Workflow responses now include recommended skills alongside agent orchestration for each PREVC phase.
+
+- **Workflow Status Serialization**: Omits empty or default sections to keep `status.yaml` minimal and readable.
+
+- **Agents Export Default**: Changed default sync mode from `markdown` to `symlink`
+  - Symlinks keep AI tool directories automatically synchronized
+  - Changes in `.context/agents/` reflect immediately in target directories
+
+- **MCP Tool Simplification**: Removed project-setup and project-report tools
+  - Simplified from 11 tools to 9 tools (5 gateways + 4 dedicated workflow tools)
+  - New explicit workflow: `context init` → `fillSingle` → `workflow-init`
+  - Project setup functionality now achieved through composable steps
+  - Removed `ProjectAction`, `ProjectParams`, `WorkflowAction`, `WorkflowParams` types
+  - Enhancement prompts no longer use function call syntax
+  - Tool descriptions clarify that workflow-init creates `.context/workflow/` folder
+  - Added MCP README.md documentation for simplified tool structure
+
+- **MCP Server Architecture**: Gateway pattern replaces individual tools
+  - Single entry point per domain (explore, context, workflow, etc.)
+  - Action-based dispatching within each gateway
+  - Consistent parameter validation and error handling
+
+- **Scaffold Generation**: Templates now generate structure, not content
+  - AI agents receive scaffold structure and fill based on context
+  - Better separation of structure definition and content generation
+
+- **Workflow Initialization**: New settings and options
+  - `autonomous`, `require_plan`, `require_approval` settings
+  - Scale-based default settings for different project sizes
+  - `archive_previous` controls handling of existing workflows
+
+### Breaking Changes
+
+- **ENTERPRISE Scale Removed**
+  - `ProjectScale.ENTERPRISE` enum value removed (breaking change for TypeScript code)
+  - Consolidated into `ProjectScale.LARGE` for simpler mental model
+  - Security/compliance keywords now map to LARGE scale instead of ENTERPRISE
+  - **Backward compatibility**: Existing `status.yaml` files with `scale: ENTERPRISE` automatically migrate to LARGE
+  - **API compatibility**: `getScaleFromName('enterprise')` maps to LARGE for smooth transitions
+  - **MCP interface**: `workflow-init` scale parameter no longer accepts 'ENTERPRISE'
+
+- **Context Initialization**
+  - `.context` is now created only in the specified path or current working directory
+
+### Fixed
+
+- **Workflow Init Paths**: Correctly resolves `.context` repo paths to ensure `status.yaml` is created in the expected location.
+- **Plan Index Initialization**: Ensures `.context/workflow/plans.json` is created when starting a workflow.
+- **Export Validation**: Export commands now properly check if source directories exist
+  - `exportContext`, `exportDocs`, `exportAgents`, `exportSkills` only export content that actually exists in `.context/`
+  - Added `fs.pathExists` checks before processing docs, agents, and skills directories
+  - Skills export without `includeBuiltIn` no longer fails silently when `.context/skills/` doesn't exist
+  - Prevents misleading success messages when exporting non-existent content
+
+### Technical Details
+
+#### New Files
+- `src/services/mcp/gateway/` - Gateway handler modules
+  - `explore.ts` - File/code exploration handler
+  - `context.ts` - Context management handler
+  - `plan.ts` - Plan management handler
+  - `agent.ts` - Agent orchestration handler
+  - `skill.ts` - Skill management handler
+  - `sync.ts` - Sync operations handler
+  - `workflowInit.ts` - Workflow initialization handler
+  - `workflowStatus.ts` - Workflow status handler
+  - `workflowAdvance.ts` - Workflow advance handler
+  - `workflowManage.ts` - Workflow management handler
+  - `shared.ts` - Shared utilities and response helpers
+- `src/services/mcp/README.md` - MCP tools documentation and usage guide
+- `src/workflow/gates/gateChecker.ts` - Gate checking logic
+- `src/workflow/gates/gateChecker.test.ts` - Gate checker unit tests
+- `src/workflow/errors.ts` - Custom workflow error types
+- `src/generators/shared/scaffoldStructures.ts` - Centralized scaffold definitions
+- `src/services/qa/qaService.ts` - Q&A generation service
+- `src/services/qa/topicDetector.ts` - Functional pattern detection
+- `src/utils/gitService.ts` - Git operations utility
+- `src/types/scaffoldFrontmatter.ts` - Scaffold frontmatter types
+- `src/services/mcp/mcpInstallService.ts` - MCP installation service for AI tools
+- `src/services/mcp/mcpInstallService.test.ts` - Unit tests for MCP install service
+- `src/services/export/contextExportService.ts` - Unified export orchestrator
+- `src/services/shared/contentTypeRegistry.ts` - Extensible content type definitions
+- `src/services/mcp/gateway/response.ts` - Gateway response helpers and scaffold response builder
+- `src/services/mcp/gateway/types.ts` - Gateway action types and parameters
+- `src/services/mcp/gateway/index.ts` - Gateway module exports
+- `src/services/mcp/gateway/shared.ts` - Shared utilities for gateway handlers
+- `src/services/mcp/gateway/metrics.ts` - Context metrics tracking gateway
+
+#### Modified Files
+- `src/index.ts` - Interactive mode environment prompt, conditional dotenv loading
+- `src/utils/prompts/index.ts` - Added `promptLoadEnv()` function
+- `src/utils/i18n.ts` - Added `prompts.env.loadEnv` translations (EN/PT)
+- `src/services/mcp/mcpServer.ts` - Gateway integration and new actions
+- `src/services/mcp/gateway/context.ts` - Gateway implementation with `init`, `scaffoldPlan` actions, Q&A and pattern detection
+- `src/services/ai/tools/scaffoldPlanTool.ts` - Added consistent `status: "incomplete"` pattern and `nextStep` guidance
+- `src/prompts/defaults.ts` - Added `MCP_SCAFFOLD_ENHANCEMENT_PROMPT` constant
+- `src/workflow/orchestrator.ts` - Gate checking and execution history
+- `src/workflow/status/statusManager.ts` - Execution tracking and settings
+- `src/workflow/plans/planLinker.ts` - Step tracking and commit support
+- `src/services/ai/tools/fillScaffoldingTool.ts` - Scaffold structure integration, exports both `fillScaffoldingTool` and `fillSingleFileTool`
+- `src/services/ai/schemas.ts` - New action schemas and parameters
+- `src/generators/documentation/documentationGenerator.ts` - V2 scaffold support
+- `src/generators/agents/agentGenerator.ts` - V2 scaffold support
+- `src/generators/skills/skillGenerator.ts` - V2 scaffold support
+- `src/index.ts` - Added `mcp:install` CLI command with interactive mode
+- `src/services/mcp/index.ts` - Exported MCPInstallService
+- `src/utils/i18n.ts` - Added translations for mcp:install command (EN + PT-BR)
+- `src/services/export/exportRulesService.ts` - Added `indexMode` option and source path validation
+- `src/services/export/skillExportService.ts` - Added skills directory existence check
+- `src/services/export/index.ts` - Export ContextExportService
+- `src/services/shared/index.ts` - Export ContentTypeRegistry
+
+## [0.6.2] - 2026-01-16
+
+### Added
+
+- **Google Antigravity Support**: Full bidirectional sync support for Google Antigravity
+  - Rules export to `.agent/rules/` directory
+  - Agents sync to `.agent/agents/` directory
+  - Workflows (skills) export to `.agent/workflows/` directory
+  - New `antigravity` preset for export and sync commands
+  - MCP tools updated to include `antigravity` preset option
+
+- **Trae AI Support**: Full bidirectional sync support for Trae AI
+  - Rules export to `.trae/rules/` directory
+  - Agents sync to `.trae/agents/` directory
+  - New `trae` preset for export and sync commands
+  - MCP tools updated to include `trae` preset option
+
+- **Windsurf Directory Format**: Changed Windsurf rules export from single file to directory format
+  - Now exports to `.windsurf/rules/` as multiple markdown files
+  - Aligns with Windsurf documentation (12,000 char limit per file)
+
+- **Reverse Quick Sync**: Import rules, agents, and skills from AI tool directories into `.context/`
+  - Inverse of Quick Sync - consolidates scattered AI tool configurations into centralized `.context/`
+  - New `reverse-sync` CLI command with comprehensive options
+  - Interactive mode with component selection and merge strategy prompts
+  - Supports 12 AI tools: Claude, Cursor, GitHub Copilot, Windsurf, Cline, Continue, Gemini, Codex, Aider, Zed, Antigravity, Trae
+
+- **Tool Detection**: High-level detection of which AI tools are present in a repository
+  - `ToolDetector` class aggregates results from rules, agents, and skills detectors
+  - Returns summary grouped by tool with file counts
+  - MCP tool: `detectAITools`
+
+- **Skills Detection**: New detector for skills from AI tool directories
+  - `SkillsDetector` class scans `.claude/skills/`, `.gemini/skills/`, `.codex/skills/`
+  - Parses SKILL.md frontmatter for metadata (name, description, phases, tags)
+  - Follows existing AgentsDetector pattern
+
+- **Import Skills Service**: Import skills with merge strategy support
+  - `ImportSkillsService` class with four merge strategies: skip, overwrite, merge, rename
+  - Adds frontmatter metadata to imported files (source_tool, source_path, imported_at)
+  - Preserves skill directory structure during import
+
+- **Merge Strategies**: Flexible conflict handling for imports
+  - `skip` - Skip existing files (default)
+  - `overwrite` - Replace existing files
+  - `merge` - Append content with separator
+  - `rename` - Create `{name}-{tool}.md` for conflicts
+
+- **MCP Tools for Reverse Sync**:
+  - `detectAITools` - Detect AI tool configurations with summary
+  - `reverseQuickSync` - Import from AI tool directories to `.context/`
+
+- **CLI Command**: `npx @ai-coders/context reverse-sync [options]`
+  - `--dry-run` - Preview changes without importing
+  - `--force` - Overwrite existing files
+  - `--skip-agents`, `--skip-skills`, `--skip-rules` - Skip specific components
+  - `--merge-strategy <strategy>` - How to handle conflicts
+  - `--no-metadata` - Skip frontmatter metadata addition
+  - `-v, --verbose` - Verbose output
+
+- **Interactive Menu**: Added "Reverse Sync (import from AI tools)" option
+  - Component selection (rules, agents, skills)
+  - Merge strategy selection
+  - Detection summary display
+
+- **i18n Support**: Full English and Portuguese translations for reverse sync
+
+### Technical Details
+
+#### New Files
+- `src/services/reverseSync/types.ts` - Types and interfaces
+- `src/services/reverseSync/presets.ts` - SKILL_SOURCES and tool mappings
+- `src/services/reverseSync/skillsDetector.ts` - Skills detection
+- `src/services/reverseSync/toolDetector.ts` - High-level tool detection
+- `src/services/reverseSync/importSkillsService.ts` - Skills import service
+- `src/services/reverseSync/reverseQuickSyncService.ts` - Main orchestrator
+- `src/services/reverseSync/index.ts` - Module exports
+
+#### Modified Files
+- `src/index.ts` - Added `reverse-sync` CLI command and interactive menu option
+- `src/services/mcp/mcpServer.ts` - Added `detectAITools` and `reverseQuickSync` MCP tools
+- `src/utils/i18n.ts` - Added reverse sync translations (EN/PT)
+
+## [0.6.1] - 2026-01-15
+
+### Added
+
+- **Auto-fill instructions for scaffolding**: MCP scaffolding tools now return detailed fill instructions
+  - `initializeContext` returns semantic context and per-file fill instructions when `autoFill=true` (default)
+  - `scaffoldPlan` returns fill instructions for the plan template
+  - AI agents receive comprehensive prompts to fill each generated file
+  - New `fillPrompt` field with complete instructions for all files
+  - New `fillInstructions` per file with specific guidance (architecture, data-flow, conventions, etc.)
+
+- **Workflow file path visibility**: `workflowInit` and `workflowStatus` now return file paths
+  - `statusFilePath`: Absolute path to `.context/workflow/status.yaml`
+  - `contextPath`: Path to the `.context` directory
+  - Helps AI agents and users locate workflow state files
+
+- **New `autoFill` parameter**: Added to `initializeContext` and `scaffoldPlan` MCP tools
+  - Defaults to `true` - scaffolding tools return semantic context and fill instructions
+  - Set to `false` to skip context building and get template-only response
+
+### Changed
+
+- **Scaffolding tool responses**: Now include structured fill instructions instead of generic nextSteps
+  - Each generated file includes type-specific fill instructions
+  - Semantic context included for codebase-aware content generation
+  - Clear action directives for AI agents to fill files
+
+### Fixed
+
+- **MCP `fillSkills` no longer requires API key**: Fixed critical bug where `fillSkills` MCP tool
+  incorrectly required an AI API key when called via Claude Code
+  - MCP tools now return fill instructions instead of calling LLM services directly
+  - API keys are only required for CLI usage, never for MCP
+  - Design principle: AI agent (Claude Code) IS the LLM, so MCP tools return context/instructions
+
+### Technical Details
+
+#### Modified Files
+- `src/services/ai/schemas.ts` - Added `autoFill` parameter to input schemas
+- `src/services/ai/tools/initializeContextTool.ts` - Returns fill instructions and semantic context
+- `src/services/ai/tools/scaffoldPlanTool.ts` - Returns fill instructions for plans
+- `src/services/ai/tools/fillScaffoldingTool.ts` - Exported helper functions for reuse
+- `src/services/ai/tools/index.ts` - Updated exports
+- `src/services/mcp/mcpServer.ts` - Fixed `fillSkills` to return fill instructions instead of calling SkillFillService, added `autoFill` to tool schemas, file paths to workflow responses
 
 ## [0.6.0] - 2026-01-14
 
